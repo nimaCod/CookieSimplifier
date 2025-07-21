@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Cookie Simplifier",
+  "version": "0.1",
+  "description": "A basic browser extension to test functionality.",
+"action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png"
+    }
+  },
+  "permissions": []
+}
