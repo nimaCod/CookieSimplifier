@@ -351,84 +351,6 @@ if (!isManifestV3) {
     ["blocking", "responseHeaders"]
   );
 }
-// Reporting
-
-function reportWebsite(info, tab, anon, issueType, notes, callback) {
-  if (tab.url.indexOf("http") != 0 || !tabList[tab.id]) {
-    return;
-  }
-
-  const hostname = getHostname(tab.url);
-
-  if (hostname.length == 0) {
-    return;
-  }
-
-  if (tabList[tab.id].whitelisted) {
-    return chrome.notifications.create("report", {
-      type: "basic",
-      title: chrome.i18n.getMessage("reportSkippedTitle", hostname),
-      message: chrome.i18n.getMessage("reportSkippedMessage"),
-      iconUrl: "icons/48.png",
-    });
-  }
-  if (!anon) {
-    chrome.tabs.create({
-      url: `https://github.com/OhMyGuus/I-Dont-Care-About-Cookies/issues/new?assignees=OhMyGuus&labels=Website+request&template=website_request.yml&title=%5BREQ%5D%3A+${encodeURIComponent(
-        hostname
-      )}&url=${encodeURIComponent(hostname)}&version=${encodeURIComponent(
-        chrome.runtime.getManifest().version
-      )}&browser=${encodeURIComponent(getBrowserAndVersion())}`,
-    });
-  } else {
-    fetch("https://api.istilldontcareaboutcookies.com/api/report", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        issueType,
-        notes,
-        url: tab.url,
-        browser: getBrowserAndVersion(),
-        extensionVersion: chrome.runtime.getManifest().version,
-      }),
-    })
-      .then((response) => response.json())
-      .then((response) => {
-        if (
-          response &&
-          !response.error &&
-          !response.errors &&
-          response.responseURL
-        ) {
-          chrome.tabs.create({
-            url: response.responseURL,
-          });
-          callback({ error: false });
-        } else {
-          callback({ error: true });
-        }
-      })
-      .catch(() => {
-        callback({ error: true });
-      });
-  }
-}
-
-function getBrowserAndVersion() {
-  const useragent = navigator.userAgent;
-  if (useragent.includes("Firefox")) {
-    return useragent.match(/Firefox\/([0-9]+[\S]+)/)[0].replace("/", " ");
-  } else if (useragent.includes("Chrome")) {
-    if (navigator.userAgentData.brands.length > 2) {
-      const { brand, version } = navigator.userAgentData.brands[1];
-      return brand + " " + version;
-    }
-  }
-  return "Other";
-}
-
 // Adding custom CSS/JS
 
 function activateDomain(hostname, tabId, frameId) {
@@ -570,16 +492,6 @@ chrome.runtime.onMessage.addListener((request, info, sendResponse) => {
           responseSend = true;
         } else if (request.command == "toggle_extension") {
           toggleWhitelist(tabList[request.tabId]);
-        } else if (request.command == "report_website") {
-          reportWebsite(
-            info,
-            tabList[request.tabId],
-            request.anon,
-            request.issueType,
-            request.notes,
-            sendResponse
-          );
-          responseSend = true;
         } else if (request.command == "refresh_page") {
           executeScript({
             tabId: request.tabId,
