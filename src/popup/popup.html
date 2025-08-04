@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cookie Banner Simplifier</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Cookie Banner Simplifier</h1>
+  
+  <div class="toggle-container">
+    <label class="toggle">
+      <input type="checkbox" id="enableToggle">
+      <span class="slider"></span>
+    </label>
+    <label for="enableToggle">Enable Extension</label>
+  </div>
+  
+  <div class="toggle-container">
+    <label class="toggle">
+      <input type="checkbox" id="debugToggle">
+      <span class="slider"></span>
+    </label>
+    <label for="debugToggle">Debug Mode</label>
+  </div>
+  
+  <button id="refreshPage">Refresh Current Page</button>
+  <button id="viewLogs">View Debug Logs</button>
+  
+  <div class="debug-info" id="debugInfo">
+    Debug information will appear here...
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
