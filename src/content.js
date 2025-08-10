@@ -6,6 +6,7 @@ let isProcessing = false; // Flag to prevent re-entrancy
 let observer = null; // Reference to our observer
 let originalBanners = new Map(); // Track original banners we've removed
 let lastProcessed = 0; // For MutationObserver throttling
+let customizationView = null; // Track if we're showing customization view
 
 // OneTrust-specific selectors
 const ONETRUST_SELECTORS = [
@@ -15,8 +16,8 @@ const ONETRUST_SELECTORS = [
   '#onetrust-policy', // OneTrust policy section
   '.onetrust-banner-sdk', // Alternative class name
   '#ot-sdk-container',
-  '[id*="onetrust"]', // Any element with "onetrust" in ID
-  '[class*="onetrust"]' // Any element with "onetrust" in class
+  // '[id*="onetrust"]', // Any element with "onetrust" in ID
+  // '[class*="onetrust"]' // Any element with "onetrust" in class
 ];
 
 // General cookie banner selectors
@@ -61,6 +62,14 @@ const EXCLUDE_SELECTORS = [
   '[class*="login"]'
 ];
 
+// Overlay selectors for dark filters and backdrops
+const OVERLAY_SELECTORS = [
+  '.onetrust-pc-dark-filter',  // OneTrust dark overlay
+  '.ot-sdk-overlay',          // OneTrust overlay
+  '.cookie-modal-backdrop',   // Generic cookie modal backdrop
+  '[class*="modal-backdrop"]' // Any modal backdrop
+];
+
 // Combined selectors
 const BANNER_SELECTORS = [...ONETRUST_SELECTORS, ...GENERAL_BANNER_SELECTORS];
 
@@ -80,6 +89,17 @@ const CONTENT_SELECTORS = [
   '.cookie-consent__message',
   '.banner-content',
   '.consent-content'
+];
+
+// Customization page selectors
+const CUSTOMIZATION_SELECTORS = [
+  '#onetrust-pc-sdk',           // OneTrust preference center
+  '#onetrust-consent-sdk',      // OneTrust consent SDK
+  '.cookie-preferences',        // Generic cookie preferences
+  '.consent-preferences',       // Generic consent preferences
+  '.privacy-preferences',       // Generic privacy preferences
+  '[id*="preference-center"]',  // Preference center by ID
+  '[class*="preference-center"]' // Preference center by class
 ];
 
 const buttonKeywords = {
@@ -512,7 +532,687 @@ function extractButtons(banner) {
   }
 }
 
-// Create simplified banner
+// Extract customization page content
+async function extractCustomizationContent(banner) {
+  log("[Cookie Simplifier] Extracting customization page content...");
+  
+  try {
+    // First, check if customization page is already visible
+    let customizationPage = null;
+    
+    // Try to find OneTrust preference center
+    const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
+    if (oneTrustPC && isVisible(oneTrustPC)) {
+      customizationPage = oneTrustPC;
+      log("[Cookie Simplifier] Found OneTrust preference center already visible");
+    }
+    
+    // If not found, try other selectors
+    if (!customizationPage) {
+      for (const selector of CUSTOMIZATION_SELECTORS) {
+        const element = document.querySelector(selector);
+        if (element && isVisible(element)) {
+          customizationPage = element;
+          log(`[Cookie Simplifier] Found customization page with selector: ${selector}`);
+          break;
+        }
+      }
+    }
+    
+    // If still not found, trigger the customize button and wait for the page to appear
+    if (!customizationPage) {
+      log("[Cookie Simplifier] Customization page not found, attempting to trigger it");
+      
+      // Find the customize button
+      const customizeBtn = banner.querySelector('#onetrust-pc-btn-handler') || 
+                          banner.querySelector('button') || 
+                          Array.from(banner.querySelectorAll('button')).find(btn => 
+                            btn.textContent.toLowerCase().includes('customize') || 
+                            btn.textContent.toLowerCase().includes('settings')
+                          );
+      
+      if (customizeBtn) {
+        log("[Cookie Simplifier] Clicking customize button to open preferences");
+        
+        // Store original banner position to restore it later
+        const originalBannerPosition = banner.style.position;
+        const originalBannerZIndex = banner.style.zIndex;
+        
+        // Temporarily hide the banner to avoid interference
+        banner.style.position = 'absolute';
+        banner.style.left = '-9999px';
+        
+        // Click the customize button
+        customizeBtn.click();
+        
+        // Wait for the customization page to appear
+        return new Promise((resolve) => {
+          let pageFound = false;
+          const checkInterval = setInterval(() => {
+            let foundPage = null;
+            
+            // Check for OneTrust preference center
+            const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
+            if (oneTrustPC && isVisible(oneTrustPC)) {
+              foundPage = oneTrustPC;
+            }
+            
+            // Check other selectors if OneTrust not found
+            if (!foundPage) {
+              for (const selector of CUSTOMIZATION_SELECTORS) {
+                const element = document.querySelector(selector);
+                if (element && isVisible(element)) {
+                  foundPage = element;
+                  break;
+                }
+              }
+            }
+            
+            if (foundPage) {
+              clearInterval(checkInterval);
+              pageFound = true;
+              log("[Cookie Simplifier] Customization page appeared after clicking button");
+              
+              // Restore original banner position
+              banner.style.position = originalBannerPosition;
+              banner.style.left = '';
+              
+              // Hide any overlays that might be causing the black screen
+              OVERLAY_SELECTORS.forEach(selector => {
+                const overlays = document.querySelectorAll(selector);
+                overlays.forEach(overlay => {
+                  if (isVisible(overlay)) {
+                    overlay.style.display = 'none';
+                    log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
+                  }
+                });
+              });
+              
+              // Create a clean container for our extracted content
+              const cleanContainer = document.createElement('div');
+              cleanContainer.style.backgroundColor = '#ffffff';
+              cleanContainer.style.color = '#000000';
+              cleanContainer.style.padding = '15px';
+              
+              // Extract title
+              const titleElement = foundPage.querySelector('h1, h2, h3, .title, .header');
+              if (titleElement) {
+                const titleClone = titleElement.cloneNode(true);
+                titleClone.style.color = '#000000';
+                titleClone.style.marginBottom = '15px';
+                cleanContainer.appendChild(titleClone);
+              }
+              
+              // Create a clean categories container
+              const categoriesContainer = document.createElement('div');
+              categoriesContainer.style.marginTop = '20px';
+              
+              // Find cookie categories - look for common patterns
+              const categorySelectors = [
+                '.ot-cat-item',          // OneTrust category item
+                '.category-item',         // Generic category item
+                '[class*="category"]',    // Any element with "category" in class
+                '.cookie-category',       // Cookie category
+                '.consent-category',      // Consent category
+                '.option-group',          // Option group
+                '.preference-group'       // Preference group
+              ];
+              
+              let foundCategories = false;
+              
+              // Try each selector to find categories
+              for (const selector of categorySelectors) {
+                const categoryElements = foundPage.querySelectorAll(selector);
+                if (categoryElements.length > 0) {
+                  foundCategories = true;
+                  
+                  categoryElements.forEach(category => {
+                    // Create a clean category item
+                    const categoryItem = document.createElement('div');
+                    categoryItem.style.backgroundColor = '#f9f9f9';
+                    categoryItem.style.border = '1px solid #ddd';
+                    categoryItem.style.borderRadius = '4px';
+                    categoryItem.style.padding = '12px';
+                    categoryItem.style.marginBottom = '10px';
+                    categoryItem.style.display = 'flex';
+                    categoryItem.style.alignItems = 'center';
+                    categoryItem.style.justifyContent = 'space-between';
+                    
+                    // Extract category name
+                    let categoryName = '';
+                    const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+                    if (titleElement) {
+                      categoryName = titleElement.textContent.trim();
+                    } else {
+                      // Try to get category name from the first text node
+                      const textNodes = Array.from(category.childNodes).filter(node => 
+                        node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+                      );
+                      if (textNodes.length > 0) {
+                        categoryName = textNodes[0].textContent.trim();
+                      }
+                    }
+                    
+                    // If no name found, use a default
+                    if (!categoryName) {
+                      categoryName = 'Cookie Category';
+                    }
+                    
+                    // Create category label
+                    const categoryLabel = document.createElement('label');
+                    categoryLabel.style.color = '#000000';
+                    categoryLabel.style.fontWeight = 'bold';
+                    categoryLabel.style.cursor = 'pointer';
+                    categoryLabel.textContent = categoryName;
+                    
+                    // Find the toggle/checkbox for this category
+                    let toggle = category.querySelector('input[type="checkbox"]');
+                    if (!toggle) {
+                      // Look for toggle switches or other input types
+                      toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"]');
+                    }
+                    
+                    // Create a toggle switch if none found
+                    if (!toggle) {
+                      toggle = document.createElement('input');
+                      toggle.type = 'checkbox';
+                      toggle.checked = true; // Default to checked
+                    }
+                    
+                    // Clone the toggle to avoid event conflicts
+                    const toggleClone = toggle.cloneNode(true);
+                    toggleClone.style.marginLeft = '10px';
+                    toggleClone.style.cursor = 'pointer';
+                    
+                    // Add the label and toggle to the category item
+                    categoryItem.appendChild(categoryLabel);
+                    categoryItem.appendChild(toggleClone);
+                    
+                    categoriesContainer.appendChild(categoryItem);
+                  });
+                  
+                  break; // Stop after finding categories with the first successful selector
+                }
+              }
+              
+              // If no categories found with selectors, try to find checkboxes/radios directly
+              if (!foundCategories) {
+                const allToggles = foundPage.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+                if (allToggles.length > 0) {
+                  foundCategories = true;
+                  
+                  // Group toggles by their parent containers
+                  const toggleGroups = new Map();
+                  
+                  allToggles.forEach(toggle => {
+                    // Find the closest parent that might be a category container
+                    let parent = toggle.parentElement;
+                    while (parent && parent !== foundPage) {
+                      // Check if this parent contains a title or heading
+                      if (parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]')) {
+                        break;
+                      }
+                      parent = parent.parentElement;
+                    }
+                    
+                    if (parent && parent !== foundPage) {
+                      if (!toggleGroups.has(parent)) {
+                        toggleGroups.set(parent, []);
+                      }
+                      toggleGroups.get(parent).push(toggle);
+                    } else {
+                      // If no proper parent found, add to a default group
+                      if (!toggleGroups.has('default')) {
+                        toggleGroups.set('default', []);
+                      }
+                      toggleGroups.get('default').push(toggle);
+                    }
+                  });
+                  
+                  // Create category items for each group
+                  toggleGroups.forEach((toggles, parent) => {
+                    if (parent === 'default') {
+                      // Create a single category for all ungrouped toggles
+                      const categoryItem = document.createElement('div');
+                      categoryItem.style.backgroundColor = '#f9f9f9';
+                      categoryItem.style.border = '1px solid #ddd';
+                      categoryItem.style.borderRadius = '4px';
+                      categoryItem.style.padding = '12px';
+                      categoryItem.style.marginBottom = '10px';
+                      
+                      const categoryLabel = document.createElement('label');
+                      categoryLabel.style.color = '#000000';
+                      categoryLabel.style.fontWeight = 'bold';
+                      categoryLabel.style.cursor = 'pointer';
+                      categoryLabel.textContent = 'Cookie Preferences';
+                      
+                      categoryItem.appendChild(categoryLabel);
+                      
+                      // Add all toggles in this group
+                      toggles.forEach(toggle => {
+                        const toggleClone = toggle.cloneNode(true);
+                        toggleClone.style.marginLeft = '10px';
+                        toggleClone.style.cursor = 'pointer';
+                        categoryItem.appendChild(toggleClone);
+                      });
+                      
+                      categoriesContainer.appendChild(categoryItem);
+                    } else {
+                      // Create a category item for this parent group
+                      const categoryItem = document.createElement('div');
+                      categoryItem.style.backgroundColor = '#f9f9f9';
+                      categoryItem.style.border = '1px solid #ddd';
+                      categoryItem.style.borderRadius = '4px';
+                      categoryItem.style.padding = '12px';
+                      categoryItem.style.marginBottom = '10px';
+                      
+                      // Extract category name from the parent
+                      let categoryName = '';
+                      const titleElement = parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
+                      if (titleElement) {
+                        categoryName = titleElement.textContent.trim();
+                      } else {
+                        categoryName = 'Cookie Category';
+                      }
+                      
+                      const categoryLabel = document.createElement('label');
+                      categoryLabel.style.color = '#000000';
+                      categoryLabel.style.fontWeight = 'bold';
+                      categoryLabel.style.cursor = 'pointer';
+                      categoryLabel.textContent = categoryName;
+                      
+                      categoryItem.appendChild(categoryLabel);
+                      
+                      // Add all toggles in this group
+                      toggles.forEach(toggle => {
+                        const toggleClone = toggle.cloneNode(true);
+                        toggleClone.style.marginLeft = '10px';
+                        toggleClone.style.cursor = 'pointer';
+                        categoryItem.appendChild(toggleClone);
+                      });
+                      
+                      categoriesContainer.appendChild(categoryItem);
+                    }
+                  });
+                }
+              }
+              
+              // If still no categories found, create a simple default interface
+              if (!foundCategories) {
+                categoriesContainer.innerHTML = `
+                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
+                    <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
+                  </div>
+                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
+                    <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+                  </div>
+                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
+                    <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+                  </div>
+                `;
+              }
+              
+              cleanContainer.appendChild(categoriesContainer);
+              
+              // Hide the original customization page
+              foundPage.style.display = 'none';
+              
+              resolve(cleanContainer);
+            }
+          }, 100);
+          
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            if (!pageFound) {
+              log("[Cookie Simplifier] Timeout waiting for customization page");
+              
+              // Restore original banner position
+              banner.style.position = originalBannerPosition;
+              banner.style.left = '';
+              
+              // Hide any overlays that might be causing the black screen
+              OVERLAY_SELECTORS.forEach(selector => {
+                const overlays = document.querySelectorAll(selector);
+                overlays.forEach(overlay => {
+                  if (isVisible(overlay)) {
+                    overlay.style.display = 'none';
+                    log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
+                  }
+                });
+              });
+              
+              // Return fallback content
+              resolve(createFallbackCustomizationContent());
+            }
+          }, 5000);
+        });
+      }
+    }
+    
+    if (customizationPage) {
+      // Hide any overlays that might be causing the black screen
+      OVERLAY_SELECTORS.forEach(selector => {
+        const overlays = document.querySelectorAll(selector);
+        overlays.forEach(overlay => {
+          if (isVisible(overlay)) {
+            overlay.style.display = 'none';
+            log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
+          }
+        });
+      });
+      
+      // Create a clean container for our extracted content
+      const cleanContainer = document.createElement('div');
+      cleanContainer.style.backgroundColor = '#ffffff';
+      cleanContainer.style.color = '#000000';
+      cleanContainer.style.padding = '15px';
+      
+      // Extract title
+      const titleElement = customizationPage.querySelector('h1, h2, h3, .title, .header');
+      if (titleElement) {
+        const titleClone = titleElement.cloneNode(true);
+        titleClone.style.color = '#000000';
+        titleClone.style.marginBottom = '15px';
+        cleanContainer.appendChild(titleClone);
+      }
+      
+      // Create a clean categories container
+      const categoriesContainer = document.createElement('div');
+      categoriesContainer.style.marginTop = '20px';
+      
+      // Find cookie categories - look for common patterns
+      const categorySelectors = [
+        '.ot-cat-item',          // OneTrust category item
+        '.category-item',         // Generic category item
+        '[class*="category"]',    // Any element with "category" in class
+        '.cookie-category',       // Cookie category
+        '.consent-category',      // Consent category
+        '.option-group',          // Option group
+        '.preference-group'       // Preference group
+      ];
+      
+      let foundCategories = false;
+      
+      // Try each selector to find categories
+      for (const selector of categorySelectors) {
+        const categoryElements = customizationPage.querySelectorAll(selector);
+        if (categoryElements.length > 0) {
+          foundCategories = true;
+          
+          categoryElements.forEach(category => {
+            // Create a clean category item
+            const categoryItem = document.createElement('div');
+            categoryItem.style.backgroundColor = '#f9f9f9';
+            categoryItem.style.border = '1px solid #ddd';
+            categoryItem.style.borderRadius = '4px';
+            categoryItem.style.padding = '12px';
+            categoryItem.style.marginBottom = '10px';
+            categoryItem.style.display = 'flex';
+            categoryItem.style.alignItems = 'center';
+            categoryItem.style.justifyContent = 'space-between';
+            
+            // Extract category name
+            let categoryName = '';
+            const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+            if (titleElement) {
+              categoryName = titleElement.textContent.trim();
+            } else {
+              // Try to get category name from the first text node
+              const textNodes = Array.from(category.childNodes).filter(node => 
+                node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+              );
+              if (textNodes.length > 0) {
+                categoryName = textNodes[0].textContent.trim();
+              }
+            }
+            
+            // If no name found, use a default
+            if (!categoryName) {
+              categoryName = 'Cookie Category';
+            }
+            
+            // Create category label
+            const categoryLabel = document.createElement('label');
+            categoryLabel.style.color = '#000000';
+            categoryLabel.style.fontWeight = 'bold';
+            categoryLabel.style.cursor = 'pointer';
+            categoryLabel.textContent = categoryName;
+            
+            // Find the toggle/checkbox for this category
+            let toggle = category.querySelector('input[type="checkbox"]');
+            if (!toggle) {
+              // Look for toggle switches or other input types
+              toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"]');
+            }
+            
+            // Create a toggle switch if none found
+            if (!toggle) {
+              toggle = document.createElement('input');
+              toggle.type = 'checkbox';
+              toggle.checked = true; // Default to checked
+            }
+            
+            // Clone the toggle to avoid event conflicts
+            const toggleClone = toggle.cloneNode(true);
+            toggleClone.style.marginLeft = '10px';
+            toggleClone.style.cursor = 'pointer';
+            
+            // Add the label and toggle to the category item
+            categoryItem.appendChild(categoryLabel);
+            categoryItem.appendChild(toggleClone);
+            
+            categoriesContainer.appendChild(categoryItem);
+          });
+          
+          break; // Stop after finding categories with the first successful selector
+        }
+      }
+      
+      // If no categories found with selectors, try to find checkboxes/radios directly
+      if (!foundCategories) {
+        const allToggles = customizationPage.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+        if (allToggles.length > 0) {
+          foundCategories = true;
+          
+          // Group toggles by their parent containers
+          const toggleGroups = new Map();
+          
+          allToggles.forEach(toggle => {
+            // Find the closest parent that might be a category container
+            let parent = toggle.parentElement;
+            while (parent && parent !== customizationPage) {
+              // Check if this parent contains a title or heading
+              if (parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]')) {
+                break;
+              }
+              parent = parent.parentElement;
+            }
+            
+            if (parent && parent !== customizationPage) {
+              if (!toggleGroups.has(parent)) {
+                toggleGroups.set(parent, []);
+              }
+              toggleGroups.get(parent).push(toggle);
+            } else {
+              // If no proper parent found, add to a default group
+              if (!toggleGroups.has('default')) {
+                toggleGroups.set('default', []);
+              }
+              toggleGroups.get('default').push(toggle);
+            }
+          });
+          
+          // Create category items for each group
+          toggleGroups.forEach((toggles, parent) => {
+            if (parent === 'default') {
+              // Create a single category for all ungrouped toggles
+              const categoryItem = document.createElement('div');
+              categoryItem.style.backgroundColor = '#f9f9f9';
+              categoryItem.style.border = '1px solid #ddd';
+              categoryItem.style.borderRadius = '4px';
+              categoryItem.style.padding = '12px';
+              categoryItem.style.marginBottom = '10px';
+              
+              const categoryLabel = document.createElement('label');
+              categoryLabel.style.color = '#000000';
+              categoryLabel.style.fontWeight = 'bold';
+              categoryLabel.style.cursor = 'pointer';
+              categoryLabel.textContent = 'Cookie Preferences';
+              
+              categoryItem.appendChild(categoryLabel);
+              
+              // Add all toggles in this group
+              toggles.forEach(toggle => {
+                const toggleClone = toggle.cloneNode(true);
+                toggleClone.style.marginLeft = '10px';
+                toggleClone.style.cursor = 'pointer';
+                categoryItem.appendChild(toggleClone);
+              });
+              
+              categoriesContainer.appendChild(categoryItem);
+            } else {
+              // Create a category item for this parent group
+              const categoryItem = document.createElement('div');
+              categoryItem.style.backgroundColor = '#f9f9f9';
+              categoryItem.style.border = '1px solid #ddd';
+              categoryItem.style.borderRadius = '4px';
+              categoryItem.style.padding = '12px';
+              categoryItem.style.marginBottom = '10px';
+              
+              // Extract category name from the parent
+              let categoryName = '';
+              const titleElement = parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
+              if (titleElement) {
+                categoryName = titleElement.textContent.trim();
+              } else {
+                categoryName = 'Cookie Category';
+              }
+              
+              const categoryLabel = document.createElement('label');
+              categoryLabel.style.color = '#000000';
+              categoryLabel.style.fontWeight = 'bold';
+              categoryLabel.style.cursor = 'pointer';
+              categoryLabel.textContent = categoryName;
+              
+              categoryItem.appendChild(categoryLabel);
+              
+              // Add all toggles in this group
+              toggles.forEach(toggle => {
+                const toggleClone = toggle.cloneNode(true);
+                toggleClone.style.marginLeft = '10px';
+                toggleClone.style.cursor = 'pointer';
+                categoryItem.appendChild(toggleClone);
+              });
+              
+              categoriesContainer.appendChild(categoryItem);
+            }
+          });
+        }
+      }
+      
+      // If still no categories found, create a simple default interface
+      if (!foundCategories) {
+        categoriesContainer.innerHTML = `
+          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+            <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
+            <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
+          </div>
+          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+            <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
+            <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+          </div>
+          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+            <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
+            <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+          </div>
+        `;
+      }
+      
+      cleanContainer.appendChild(categoriesContainer);
+      
+      // Hide the original customization page
+      customizationPage.style.display = 'none';
+      
+      return cleanContainer;
+    }
+    
+    log("[Cookie Simplifier] No customization page found");
+    return createFallbackCustomizationContent();
+  } catch (error) {
+    log(`[Cookie Simplifier] Error extracting customization content: ${error.message}`);
+    return createFallbackCustomizationContent();
+  }
+}
+
+// Process the customization clone
+function processCustomizationClone(clone) {
+  // Fix background color
+  clone.style.backgroundColor = '#ffffff';
+  
+  // Process links
+  const links = clone.querySelectorAll('a');
+  links.forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.open(link.href, '_blank');
+    });
+    
+    link.style.color = '#2196F3';
+    link.style.textDecoration = 'underline';
+    link.style.cursor = 'pointer';
+  });
+  
+  // Process images
+  const images = clone.querySelectorAll('img');
+  images.forEach(img => {
+    if (!img.src && img.getAttribute('data-src')) {
+      img.src = img.getAttribute('data-src');
+    }
+  });
+  
+  // Make all text black
+  const textElements = clone.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, li, td, th, label');
+  textElements.forEach(element => {
+    element.style.color = '#000000';
+  });
+  
+  // Style checkboxes
+  const checkboxes = clone.querySelectorAll('input[type="checkbox"]');
+  checkboxes.forEach(checkbox => {
+    checkbox.style.marginRight = '8px';
+  });
+}
+
+// Create fallback customization content
+function createFallbackCustomizationContent() {
+  const fallback = document.createElement('div');
+  fallback.className = 'customization-content black-text';
+  fallback.style.color = '#000000';
+  fallback.style.backgroundColor = '#ffffff';
+  fallback.style.padding = '15px';
+  fallback.innerHTML = `
+    <h3 style="color: #000000; margin-bottom: 15px;">Cookie Settings</h3>
+    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+      <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
+      <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
+    </div>
+    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+      <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
+      <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+    </div>
+    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+      <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
+      <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
+    </div>
+  `;
+  return fallback;
+}
+
+// Create simplified banner with customization view
 function createSimplifiedBanner(banner, buttons, bannerContent) {
   log("[Cookie Simplifier] Creating simplified banner...");
   
@@ -607,11 +1307,35 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
     closeBtn.style.justifyContent = 'center';
     closeBtn.addEventListener('click', () => {
       log("[Cookie Simplifier] Closed simplified banner");
+      
+      // Restore any hidden overlays when closing the banner
+      OVERLAY_SELECTORS.forEach(selector => {
+        const overlays = document.querySelectorAll(selector);
+        overlays.forEach(overlay => {
+          if (overlay.style.display === 'none') {
+            overlay.style.display = '';
+            log(`[Cookie Simplifier] Restored overlay: ${selector}`);
+          }
+        });
+      });
+      
       newBanner.remove();
     });
     closeBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         log("[Cookie Simplifier] Keyboard closed simplified banner");
+        
+        // Restore any hidden overlays when closing the banner
+        OVERLAY_SELECTORS.forEach(selector => {
+          const overlays = document.querySelectorAll(selector);
+          overlays.forEach(overlay => {
+            if (overlay.style.display === 'none') {
+              overlay.style.display = '';
+              log(`[Cookie Simplifier] Restored overlay: ${selector}`);
+            }
+          });
+        });
+        
         newBanner.remove();
       }
     });
@@ -624,30 +1348,44 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
     contentContainer.style.padding = '0 20px 20px 20px';
     contentContainer.style.overflowY = 'auto'; // Make content scrollable
     contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
+    contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
+    
+    // Main view container
+    const mainView = document.createElement('div');
+    mainView.id = 'simplified-cookie-main-view';
+    mainView.style.backgroundColor = '#ffffff'; // Ensure white background
     
     // Add the extracted HTML content
     if (bannerContent) {
-      contentContainer.appendChild(bannerContent);
+      mainView.appendChild(bannerContent);
     } else {
       // Fallback content if extraction failed
       const fallbackContent = document.createElement('div');
       fallbackContent.className = 'extracted-banner-content black-text';
       fallbackContent.style.color = '#000000';
+      fallbackContent.style.backgroundColor = '#ffffff';
       fallbackContent.innerHTML = `
         <p style="color: #000000;">This website uses cookies to enhance your experience. By continuing to use this site, you agree to our use of cookies.</p>
         <p style="color: #000000;">For more information, please review the website's privacy policy.</p>
       `;
-      contentContainer.appendChild(fallbackContent);
+      mainView.appendChild(fallbackContent);
     }
     
-    // Button container
+    // Customization view container (initially hidden)
+    const customizationView = document.createElement('div');
+    customizationView.id = 'simplified-cookie-customization-view';
+    customizationView.style.display = 'none';
+    customizationView.style.backgroundColor = '#ffffff'; // Ensure white background
+    
+    // Button container for main view
     const buttonContainer = document.createElement('div');
     buttonContainer.style.display = 'flex';
     buttonContainer.style.flexDirection = 'column';
     buttonContainer.style.gap = '10px';
     buttonContainer.style.marginTop = '15px';
+    buttonContainer.style.backgroundColor = '#ffffff'; // Ensure white background
     
-    // Add original buttons
+    // Add original buttons to main view
     buttons.forEach(button => {
       const btn = document.createElement('button');
       btn.textContent = button.text;
@@ -677,40 +1415,133 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
       
       // Add click handler
       btn.addEventListener('click', () => {
-        log(`[Cookie Simplifier] Clicked button: ${button.type}, Text: "${button.text}"`);
-        try {
-          const cookieBefore = document.cookie;
+        if (button.type === 'customize') {
+          // Show customization view
+          log("[Cookie Simplifier] Showing customization view");
+          mainView.style.display = 'none';
+          customizationView.style.display = 'block';
           
-          // Ensure the original button is still in the DOM for OneTrust
-          if (!document.body.contains(button.element)) {
-            log("[Cookie Simplifier] Original button not in DOM, reattaching temporarily");
-            const tempContainer = document.createElement('div');
-            tempContainer.style.display = 'none';
-            tempContainer.appendChild(button.element);
-            document.body.appendChild(tempContainer);
-            button.element.click();
-            tempContainer.remove();
-          } else {
-            button.element.click();
+          // Load customization content if not already loaded
+          if (customizationView.children.length === 0) {
+            log("[Cookie Simplifier] Loading customization content");
+            
+            // Show a loading indicator
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.textContent = 'Loading cookie preferences...';
+            loadingIndicator.style.padding = '20px';
+            loadingIndicator.style.textAlign = 'center';
+            loadingIndicator.style.color = '#000000';
+            customizationView.appendChild(loadingIndicator);
+            
+            // Extract customization content
+            extractCustomizationContent(banner).then(content => {
+              // Remove loading indicator
+              if (loadingIndicator.parentNode) {
+                loadingIndicator.parentNode.removeChild(loadingIndicator);
+              }
+              
+              // Add the extracted content
+              customizationView.appendChild(content);
+              
+              // Add back button
+              const backButton = document.createElement('button');
+              backButton.textContent = '← Back';
+              backButton.style.marginTop = '15px';
+              backButton.style.padding = '10px 15px';
+              backButton.style.backgroundColor = '#888';
+              backButton.style.color = 'white';
+              backButton.style.border = 'none';
+              backButton.style.borderRadius = '4px';
+              backButton.style.cursor = 'pointer';
+              backButton.style.fontSize = '14px';
+              backButton.style.fontWeight = 'bold';
+              
+              backButton.addEventListener('click', () => {
+                log("[Cookie Simplifier] Going back to main view");
+                customizationView.style.display = 'none';
+                mainView.style.display = 'block';
+              });
+              
+              customizationView.appendChild(backButton);
+              
+              // Add accept button for customization
+              const acceptButton = document.createElement('button');
+              acceptButton.textContent = 'Accept Selection';
+              acceptButton.style.marginTop = '10px';
+              acceptButton.style.padding = '12px 16px';
+              acceptButton.style.backgroundColor = '#4CAF50';
+              acceptButton.style.color = 'white';
+              acceptButton.style.border = 'none';
+              acceptButton.style.borderRadius = '4px';
+              acceptButton.style.cursor = 'pointer';
+              acceptButton.style.fontSize = '14px';
+              acceptButton.style.fontWeight = 'bold';
+              acceptButton.style.width = '100%';
+              
+              acceptButton.addEventListener('click', () => {
+                log("[Cookie Simplifier] Accepted customized settings");
+                
+                // Find and click the original accept button in the hidden customization page
+                const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
+                if (hiddenCustomizationPage) {
+                  const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
+                  if (saveButton) {
+                    saveButton.click();
+                  } else {
+                    log("[Cookie Simplifier] Could not find save button in hidden customization page");
+                  }
+                }
+                
+                // Close our banner
+                newBanner.remove();
+              });
+              
+              customizationView.appendChild(acceptButton);
+            }).catch(error => {
+              log(`[Cookie Simplifier] Error loading customization content: ${error.message}`);
+              
+              // Remove loading indicator
+              if (loadingIndicator.parentNode) {
+                loadingIndicator.parentNode.removeChild(loadingIndicator);
+              }
+              
+              // Show error message
+              const errorMessage = document.createElement('div');
+              errorMessage.textContent = 'Error loading cookie preferences. Please try again.';
+              errorMessage.style.color = 'red';
+              errorMessage.style.padding = '20px';
+              errorMessage.style.textAlign = 'center';
+              customizationView.appendChild(errorMessage);
+              
+              // Add back button
+              const backButton = document.createElement('button');
+              backButton.textContent = '← Back';
+              backButton.style.marginTop = '15px';
+              backButton.style.padding = '10px 15px';
+              backButton.style.backgroundColor = '#888';
+              backButton.style.color = 'white';
+              backButton.style.border = 'none';
+              backButton.style.borderRadius = '4px';
+              backButton.style.cursor = 'pointer';
+              backButton.style.fontSize = '14px';
+              backButton.style.fontWeight = 'bold';
+              
+              backButton.addEventListener('click', () => {
+                log("[Cookie Simplifier] Going back to main view");
+                customizationView.style.display = 'none';
+                mainView.style.display = 'block';
+              });
+              
+              customizationView.appendChild(backButton);
+            });
           }
-          
-          setTimeout(() => {
-            const cookieAfter = document.cookie;
-            log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
-          }, 500);
-        } catch (error) {
-          log(`[Cookie Simplifier] Error triggering button click: ${error.message}`);
-        }
-        newBanner.remove();
-      });
-      
-      // Add keyboard support
-      btn.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          log(`[Cookie Simplifier] Keyboard triggered button: ${button.type}`);
+        } else {
+          // Handle accept/reject buttons
+          log(`[Cookie Simplifier] Clicked button: ${button.type}, Text: "${button.text}"`);
           try {
             const cookieBefore = document.cookie;
             
+            // Ensure the original button is still in the DOM for OneTrust
             if (!document.body.contains(button.element)) {
               log("[Cookie Simplifier] Original button not in DOM, reattaching temporarily");
               const tempContainer = document.createElement('div');
@@ -734,10 +1565,165 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
         }
       });
       
+      // Add keyboard support
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (button.type === 'customize') {
+            // Show customization view
+            log("[Cookie Simplifier] Showing customization view");
+            mainView.style.display = 'none';
+            customizationView.style.display = 'block';
+            
+            // Load customization content if not already loaded
+            if (customizationView.children.length === 0) {
+              log("[Cookie Simplifier] Loading customization content");
+              
+              // Show a loading indicator
+              const loadingIndicator = document.createElement('div');
+              loadingIndicator.textContent = 'Loading cookie preferences...';
+              loadingIndicator.style.padding = '20px';
+              loadingIndicator.style.textAlign = 'center';
+              loadingIndicator.style.color = '#000000';
+              customizationView.appendChild(loadingIndicator);
+              
+              // Extract customization content
+              extractCustomizationContent(banner).then(content => {
+                // Remove loading indicator
+                if (loadingIndicator.parentNode) {
+                  loadingIndicator.parentNode.removeChild(loadingIndicator);
+                }
+                
+                // Add the extracted content
+                customizationView.appendChild(content);
+                
+                // Add back button
+                const backButton = document.createElement('button');
+                backButton.textContent = '← Back';
+                backButton.style.marginTop = '15px';
+                backButton.style.padding = '10px 15px';
+                backButton.style.backgroundColor = '#888';
+                backButton.style.color = 'white';
+                backButton.style.border = 'none';
+                backButton.style.borderRadius = '4px';
+                backButton.style.cursor = 'pointer';
+                backButton.style.fontSize = '14px';
+                backButton.style.fontWeight = 'bold';
+                
+                backButton.addEventListener('click', () => {
+                  log("[Cookie Simplifier] Going back to main view");
+                  customizationView.style.display = 'none';
+                  mainView.style.display = 'block';
+                });
+                
+                customizationView.appendChild(backButton);
+                
+                // Add accept button for customization
+                const acceptButton = document.createElement('button');
+                acceptButton.textContent = 'Accept Selection';
+                acceptButton.style.marginTop = '10px';
+                acceptButton.style.padding = '12px 16px';
+                acceptButton.style.backgroundColor = '#4CAF50';
+                acceptButton.style.color = 'white';
+                acceptButton.style.border = 'none';
+                acceptButton.style.borderRadius = '4px';
+                acceptButton.style.cursor = 'pointer';
+                acceptButton.style.fontSize = '14px';
+                acceptButton.style.fontWeight = 'bold';
+                acceptButton.style.width = '100%';
+                
+                acceptButton.addEventListener('click', () => {
+                  log("[Cookie Simplifier] Accepted customized settings");
+                  
+                  // Find and click the original accept button in the hidden customization page
+                  const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
+                  if (hiddenCustomizationPage) {
+                    const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
+                    if (saveButton) {
+                      saveButton.click();
+                    } else {
+                      log("[Cookie Simplifier] Could not find save button in hidden customization page");
+                    }
+                  }
+                  
+                  // Close our banner
+                  newBanner.remove();
+                });
+                
+                customizationView.appendChild(acceptButton);
+              }).catch(error => {
+                log(`[Cookie Simplifier] Error loading customization content: ${error.message}`);
+                
+                // Remove loading indicator
+                if (loadingIndicator.parentNode) {
+                  loadingIndicator.parentNode.removeChild(loadingIndicator);
+                }
+                
+                // Show error message
+                const errorMessage = document.createElement('div');
+                errorMessage.textContent = 'Error loading cookie preferences. Please try again.';
+                errorMessage.style.color = 'red';
+                errorMessage.style.padding = '20px';
+                errorMessage.style.textAlign = 'center';
+                customizationView.appendChild(errorMessage);
+                
+                // Add back button
+                const backButton = document.createElement('button');
+                backButton.textContent = '← Back';
+                backButton.style.marginTop = '15px';
+                backButton.style.padding = '10px 15px';
+                backButton.style.backgroundColor = '#888';
+                backButton.style.color = 'white';
+                backButton.style.border = 'none';
+                backButton.style.borderRadius = '4px';
+                backButton.style.cursor = 'pointer';
+                backButton.style.fontSize = '14px';
+                backButton.style.fontWeight = 'bold';
+                
+                backButton.addEventListener('click', () => {
+                  log("[Cookie Simplifier] Going back to main view");
+                  customizationView.style.display = 'none';
+                  mainView.style.display = 'block';
+                });
+                
+                customizationView.appendChild(backButton);
+              });
+            }
+          } else {
+            // Handle accept/reject buttons
+            log(`[Cookie Simplifier] Keyboard triggered button: ${button.type}`);
+            try {
+              const cookieBefore = document.cookie;
+              
+              if (!document.body.contains(button.element)) {
+                log("[Cookie Simplifier] Original button not in DOM, reattaching temporarily");
+                const tempContainer = document.createElement('div');
+                tempContainer.style.display = 'none';
+                tempContainer.appendChild(button.element);
+                document.body.appendChild(tempContainer);
+                button.element.click();
+                tempContainer.remove();
+              } else {
+                button.element.click();
+              }
+              
+              setTimeout(() => {
+                const cookieAfter = document.cookie;
+                log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+              }, 500);
+            } catch (error) {
+              log(`[Cookie Simplifier] Error triggering button click: ${error.message}`);
+            }
+            newBanner.remove();
+          }
+        }
+      });
+      
       buttonContainer.appendChild(btn);
     });
     
-    contentContainer.appendChild(buttonContainer);
+    mainView.appendChild(buttonContainer);
+    contentContainer.appendChild(mainView);
+    contentContainer.appendChild(customizationView);
     newBanner.appendChild(contentContainer);
     
     // Add a subtle shadow indicator for scrollable content
@@ -1108,5 +2094,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Start the extension
 init();
