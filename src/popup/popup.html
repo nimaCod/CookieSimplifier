@@ -23,6 +23,26 @@
     <label for="debugToggle">Debug Mode</label>
   </div>
   
+  <div class="toggle-container">
+    <label class="toggle">
+      <input type="checkbox" id="autoOpenToggle">
+      <span class="slider"></span>
+    </label>
+    <label for="autoOpenToggle">Auto-Open Cookie Settings</label>
+  </div>
+  
+  <div class="section">
+    <h2>Excluded Domains</h2>
+    <p>Add domains where the extension should not work:</p>
+    <div class="domain-input-container">
+      <input type="text" id="domainInput" placeholder="example.com">
+      <button id="addDomain">Add</button>
+    </div>
+    <div class="domain-list" id="domainList">
+      <!-- Excluded domains will be listed here -->
+    </div>
+  </div>
+  
   <button id="refreshPage">Refresh Current Page</button>
   <button id="viewLogs">View Debug Logs</button>
   

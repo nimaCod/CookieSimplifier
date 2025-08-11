@@ -4,9 +4,10 @@ let extensionEnabled = true;
 let debugMode = true;
 let isProcessing = false; // Flag to prevent re-entrancy
 let observer = null; // Reference to our observer
-let originalBanners = new Map(); // Track original banners we've removed
+let originalBanners = new Map(); // Track original banners we've hidden
 let lastProcessed = 0; // For MutationObserver throttling
 let customizationView = null; // Track if we're showing customization view
+let prefetchedCustomizationContent = null; // Store prefetched customization content
 
 // OneTrust-specific selectors
 const ONETRUST_SELECTORS = [
@@ -16,8 +17,6 @@ const ONETRUST_SELECTORS = [
   '#onetrust-policy', // OneTrust policy section
   '.onetrust-banner-sdk', // Alternative class name
   '#ot-sdk-container',
-  // '[id*="onetrust"]', // Any element with "onetrust" in ID
-  // '[class*="onetrust"]' // Any element with "onetrust" in class
 ];
 
 // General cookie banner selectors
@@ -117,7 +116,8 @@ function getSettings(callback) {
     }
     extensionEnabled = settings.enabled !== undefined ? settings.enabled : true;
     debugMode = settings.debugMode !== undefined ? settings.debugMode : true;
-    log(`[Cookie Simplifier] Settings retrieved: enabled=${extensionEnabled}, debugMode=${debugMode}`);
+    autoOpenCustomization = settings.autoOpenCustomization !== undefined ? settings.autoOpenCustomization : true;
+    log(`[Cookie Simplifier] Settings retrieved: enabled=${extensionEnabled}, debugMode=${debugMode}, autoOpenCustomization=${autoOpenCustomization}`);
     callback(settings);
   });
 }
@@ -532,6 +532,170 @@ function extractButtons(banner) {
   }
 }
 
+
+// Create an accordion category item with sub-choices
+// Create an accordion category item with sub-choices
+function createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = []) {
+  const categoryItem = document.createElement('div');
+  categoryItem.className = 'cookie-category-item';
+  categoryItem.style.backgroundColor = '#f9f9f9';
+  categoryItem.style.border = '1px solid #ddd';
+  categoryItem.style.borderRadius = '4px';
+  categoryItem.style.marginBottom = '10px';
+  categoryItem.style.overflow = 'hidden';
+  
+  // Category header (always visible)
+  const header = document.createElement('div');
+  header.className = 'cookie-category-header';
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.padding = '12px';
+  header.style.cursor = 'pointer';
+  header.style.backgroundColor = '#f9f9f9';
+  
+  const nameContainer = document.createElement('div');
+  nameContainer.style.display = 'flex';
+  nameContainer.style.alignItems = 'center';
+  
+  const categoryNameElement = document.createElement('span');
+  categoryNameElement.className = 'cookie-category-name';
+  categoryNameElement.textContent = categoryName;
+  categoryNameElement.style.fontWeight = 'bold';
+  categoryNameElement.style.color = '#000000';
+  categoryNameElement.style.marginRight = '10px';
+  
+  // Add "Always Active" badge if needed
+  if (isAlwaysActive) {
+    const alwaysActiveBadge = document.createElement('span');
+    alwaysActiveBadge.textContent = 'Always Active';
+    alwaysActiveBadge.style.fontSize = '10px';
+    alwaysActiveBadge.style.padding = '2px 6px';
+    alwaysActiveBadge.style.backgroundColor = '#4CAF50';
+    alwaysActiveBadge.style.color = 'white';
+    alwaysActiveBadge.style.borderRadius = '10px';
+    alwaysActiveBadge.style.marginLeft = '8px';
+    nameContainer.appendChild(alwaysActiveBadge);
+  }
+  
+  // Toggle icon
+  const toggleIcon = document.createElement('span');
+  toggleIcon.className = 'cookie-category-toggle-icon';
+  toggleIcon.textContent = '▼'; // Down arrow
+  toggleIcon.style.color = '#666';
+  toggleIcon.style.fontSize = '12px';
+  toggleIcon.style.transition = 'transform 0.3s ease';
+  
+  nameContainer.appendChild(categoryNameElement);
+  nameContainer.appendChild(toggleIcon);
+  header.appendChild(nameContainer);
+  
+  // Toggle switch (always visible)
+  const toggleContainer = document.createElement('div');
+  toggleContainer.style.display = 'flex';
+  toggleContainer.style.alignItems = 'center';
+  
+  const toggleClone = toggleElement.cloneNode(true);
+  toggleClone.style.cursor = 'pointer';
+  
+  // Disable toggle if always active
+  if (isAlwaysActive) {
+    toggleClone.disabled = true;
+    toggleClone.checked = true;
+  }
+  
+  toggleContainer.appendChild(toggleClone);
+  header.appendChild(toggleContainer);
+  
+  // Category description (initially hidden)
+  const descriptionContainer = document.createElement('div');
+  descriptionContainer.className = 'cookie-category-description';
+  descriptionContainer.style.padding = '0 12px 12px 12px';
+  descriptionContainer.style.backgroundColor = '#ffffff';
+  descriptionContainer.style.color = '#000000';
+  descriptionContainer.style.display = 'none'; // Initially hidden
+  descriptionContainer.innerHTML = description || 'No description available.';
+  
+  // Sub-choices container (initially hidden)
+  const subChoicesContainer = document.createElement('div');
+  subChoicesContainer.className = 'cookie-sub-choices';
+  subChoicesContainer.style.padding = '0 12px 12px 24px'; // Indent sub-choices
+  subChoicesContainer.style.backgroundColor = '#ffffff';
+  subChoicesContainer.style.display = 'none'; // Initially hidden
+  
+  // Add sub-choices if any
+  if (subChoices.length > 0) {
+    subChoices.forEach(subChoice => {
+      const subChoiceItem = document.createElement('div');
+      subChoiceItem.style.marginBottom = '10px';
+      subChoiceItem.style.padding = '8px';
+      subChoiceItem.style.backgroundColor = '#f0f0f0';
+      subChoiceItem.style.borderRadius = '4px';
+      
+      const subChoiceHeader = document.createElement('div');
+      subChoiceHeader.style.display = 'flex';
+      subChoiceHeader.style.justifyContent = 'space-between';
+      subChoiceHeader.style.alignItems = 'center';
+      subChoiceHeader.style.marginBottom = '5px';
+      
+      const subChoiceName = document.createElement('div');
+      subChoiceName.style.fontWeight = 'bold';
+      subChoiceName.style.color = '#000000';
+      subChoiceName.textContent = subChoice.name;
+      
+      const subChoiceToggle = subChoice.toggle.cloneNode(true);
+      subChoiceToggle.style.cursor = 'pointer';
+      
+      // Disable if always active
+      if (subChoice.isAlwaysActive) {
+        subChoiceToggle.disabled = true;
+        subChoiceToggle.checked = true;
+      }
+      
+      subChoiceHeader.appendChild(subChoiceName);
+      subChoiceHeader.appendChild(subChoiceToggle);
+      
+      const subChoiceDesc = document.createElement('div');
+      subChoiceDesc.style.color = '#000000';
+      subChoiceDesc.style.fontSize = '12px';
+      subChoiceDesc.innerHTML = subChoice.description || '';
+      
+      subChoiceItem.appendChild(subChoiceHeader);
+      subChoiceItem.appendChild(subChoiceDesc);
+      subChoicesContainer.appendChild(subChoiceItem);
+    });
+  }
+  
+  // Add click event to toggle description and sub-choices visibility
+  header.addEventListener('click', (e) => {
+    // Prevent toggle switch from triggering header click
+    if (e.target !== toggleClone) {
+      if (descriptionContainer.style.display === 'none') {
+        descriptionContainer.style.display = 'block';
+        subChoicesContainer.style.display = 'block';
+        toggleIcon.textContent = '▲'; // Up arrow
+        toggleIcon.style.transform = 'rotate(180deg)';
+      } else {
+        descriptionContainer.style.display = 'none';
+        subChoicesContainer.style.display = 'none';
+        toggleIcon.textContent = '▼'; // Down arrow
+        toggleIcon.style.transform = 'rotate(0deg)';
+      }
+    }
+  });
+  
+  // Prevent toggle switch from bubbling up to header
+  toggleClone.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+  
+  categoryItem.appendChild(header);
+  categoryItem.appendChild(descriptionContainer);
+  categoryItem.appendChild(subChoicesContainer);
+  
+  return categoryItem;
+}
+
 // Extract customization page content
 async function extractCustomizationContent(banner) {
   log("[Cookie Simplifier] Extracting customization page content...");
@@ -667,17 +831,6 @@ async function extractCustomizationContent(banner) {
                   foundCategories = true;
                   
                   categoryElements.forEach(category => {
-                    // Create a clean category item
-                    const categoryItem = document.createElement('div');
-                    categoryItem.style.backgroundColor = '#f9f9f9';
-                    categoryItem.style.border = '1px solid #ddd';
-                    categoryItem.style.borderRadius = '4px';
-                    categoryItem.style.padding = '12px';
-                    categoryItem.style.marginBottom = '10px';
-                    categoryItem.style.display = 'flex';
-                    categoryItem.style.alignItems = 'center';
-                    categoryItem.style.justifyContent = 'space-between';
-                    
                     // Extract category name
                     let categoryName = '';
                     const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
@@ -698,12 +851,12 @@ async function extractCustomizationContent(banner) {
                       categoryName = 'Cookie Category';
                     }
                     
-                    // Create category label
-                    const categoryLabel = document.createElement('label');
-                    categoryLabel.style.color = '#000000';
-                    categoryLabel.style.fontWeight = 'bold';
-                    categoryLabel.style.cursor = 'pointer';
-                    categoryLabel.textContent = categoryName;
+                    // Extract description
+                    let description = '';
+                    const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
+                    if (descElement) {
+                      description = descElement.innerHTML.trim();
+                    }
                     
                     // Find the toggle/checkbox for this category
                     let toggle = category.querySelector('input[type="checkbox"]');
@@ -719,16 +872,9 @@ async function extractCustomizationContent(banner) {
                       toggle.checked = true; // Default to checked
                     }
                     
-                    // Clone the toggle to avoid event conflicts
-                    const toggleClone = toggle.cloneNode(true);
-                    toggleClone.style.marginLeft = '10px';
-                    toggleClone.style.cursor = 'pointer';
-                    
-                    // Add the label and toggle to the category item
-                    categoryItem.appendChild(categoryLabel);
-                    categoryItem.appendChild(toggleClone);
-                    
-                    categoriesContainer.appendChild(categoryItem);
+                    // Create accordion category item
+                    const accordionCategory = createAccordionCategory(categoryName, description, toggle);
+                    categoriesContainer.appendChild(accordionCategory);
                   });
                   
                   break; // Stop after finding categories with the first successful selector
@@ -773,39 +919,16 @@ async function extractCustomizationContent(banner) {
                   toggleGroups.forEach((toggles, parent) => {
                     if (parent === 'default') {
                       // Create a single category for all ungrouped toggles
-                      const categoryItem = document.createElement('div');
-                      categoryItem.style.backgroundColor = '#f9f9f9';
-                      categoryItem.style.border = '1px solid #ddd';
-                      categoryItem.style.borderRadius = '4px';
-                      categoryItem.style.padding = '12px';
-                      categoryItem.style.marginBottom = '10px';
+                      let categoryName = 'Cookie Preferences';
+                      let description = 'Manage your cookie preferences.';
                       
-                      const categoryLabel = document.createElement('label');
-                      categoryLabel.style.color = '#000000';
-                      categoryLabel.style.fontWeight = 'bold';
-                      categoryLabel.style.cursor = 'pointer';
-                      categoryLabel.textContent = 'Cookie Preferences';
+                      // Create a representative toggle (first one)
+                      const representativeToggle = toggles[0];
                       
-                      categoryItem.appendChild(categoryLabel);
-                      
-                      // Add all toggles in this group
-                      toggles.forEach(toggle => {
-                        const toggleClone = toggle.cloneNode(true);
-                        toggleClone.style.marginLeft = '10px';
-                        toggleClone.style.cursor = 'pointer';
-                        categoryItem.appendChild(toggleClone);
-                      });
-                      
-                      categoriesContainer.appendChild(categoryItem);
+                      // Create accordion category item
+                      const accordionCategory = createAccordionCategory(categoryName, description, representativeToggle);
+                      categoriesContainer.appendChild(accordionCategory);
                     } else {
-                      // Create a category item for this parent group
-                      const categoryItem = document.createElement('div');
-                      categoryItem.style.backgroundColor = '#f9f9f9';
-                      categoryItem.style.border = '1px solid #ddd';
-                      categoryItem.style.borderRadius = '4px';
-                      categoryItem.style.padding = '12px';
-                      categoryItem.style.marginBottom = '10px';
-                      
                       // Extract category name from the parent
                       let categoryName = '';
                       const titleElement = parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
@@ -815,23 +938,19 @@ async function extractCustomizationContent(banner) {
                         categoryName = 'Cookie Category';
                       }
                       
-                      const categoryLabel = document.createElement('label');
-                      categoryLabel.style.color = '#000000';
-                      categoryLabel.style.fontWeight = 'bold';
-                      categoryLabel.style.cursor = 'pointer';
-                      categoryLabel.textContent = categoryName;
+                      // Extract description
+                      let description = '';
+                      const descElement = parent.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
+                      if (descElement) {
+                        description = descElement.innerHTML.trim();
+                      }
                       
-                      categoryItem.appendChild(categoryLabel);
+                      // Create a representative toggle (first one)
+                      const representativeToggle = toggles[0];
                       
-                      // Add all toggles in this group
-                      toggles.forEach(toggle => {
-                        const toggleClone = toggle.cloneNode(true);
-                        toggleClone.style.marginLeft = '10px';
-                        toggleClone.style.cursor = 'pointer';
-                        categoryItem.appendChild(toggleClone);
-                      });
-                      
-                      categoriesContainer.appendChild(categoryItem);
+                      // Create accordion category item
+                      const accordionCategory = createAccordionCategory(categoryName, description, representativeToggle);
+                      categoriesContainer.appendChild(accordionCategory);
                     }
                   });
                 }
@@ -839,20 +958,27 @@ async function extractCustomizationContent(banner) {
               
               // If still no categories found, create a simple default interface
               if (!foundCategories) {
-                categoriesContainer.innerHTML = `
-                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
-                    <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
-                  </div>
-                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
-                    <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-                  </div>
-                  <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                    <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
-                    <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-                  </div>
-                `;
+                const necessaryCategory = createAccordionCategory(
+                  'Necessary Cookies', 
+                  'These cookies are essential for the website to function and cannot be switched off in our systems.',
+                  createDisabledCheckbox(true)
+                );
+                
+                const analyticsCategory = createAccordionCategory(
+                  'Analytics Cookies', 
+                  'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site.',
+                  createCheckbox(false)
+                );
+                
+                const marketingCategory = createAccordionCategory(
+                  'Marketing Cookies', 
+                  'These cookies may be set through our site by our advertising partners to build a profile of your interests.',
+                  createCheckbox(false)
+                );
+                
+                categoriesContainer.appendChild(necessaryCategory);
+                categoriesContainer.appendChild(analyticsCategory);
+                categoriesContainer.appendChild(marketingCategory);
               }
               
               cleanContainer.appendChild(categoriesContainer);
@@ -944,17 +1070,6 @@ async function extractCustomizationContent(banner) {
           foundCategories = true;
           
           categoryElements.forEach(category => {
-            // Create a clean category item
-            const categoryItem = document.createElement('div');
-            categoryItem.style.backgroundColor = '#f9f9f9';
-            categoryItem.style.border = '1px solid #ddd';
-            categoryItem.style.borderRadius = '4px';
-            categoryItem.style.padding = '12px';
-            categoryItem.style.marginBottom = '10px';
-            categoryItem.style.display = 'flex';
-            categoryItem.style.alignItems = 'center';
-            categoryItem.style.justifyContent = 'space-between';
-            
             // Extract category name
             let categoryName = '';
             const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
@@ -975,12 +1090,12 @@ async function extractCustomizationContent(banner) {
               categoryName = 'Cookie Category';
             }
             
-            // Create category label
-            const categoryLabel = document.createElement('label');
-            categoryLabel.style.color = '#000000';
-            categoryLabel.style.fontWeight = 'bold';
-            categoryLabel.style.cursor = 'pointer';
-            categoryLabel.textContent = categoryName;
+            // Extract description
+            let description = '';
+            const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
+            if (descElement) {
+              description = descElement.innerHTML.trim();
+            }
             
             // Find the toggle/checkbox for this category
             let toggle = category.querySelector('input[type="checkbox"]');
@@ -996,16 +1111,9 @@ async function extractCustomizationContent(banner) {
               toggle.checked = true; // Default to checked
             }
             
-            // Clone the toggle to avoid event conflicts
-            const toggleClone = toggle.cloneNode(true);
-            toggleClone.style.marginLeft = '10px';
-            toggleClone.style.cursor = 'pointer';
-            
-            // Add the label and toggle to the category item
-            categoryItem.appendChild(categoryLabel);
-            categoryItem.appendChild(toggleClone);
-            
-            categoriesContainer.appendChild(categoryItem);
+            // Create accordion category item
+            const accordionCategory = createAccordionCategory(categoryName, description, toggle);
+            categoriesContainer.appendChild(accordionCategory);
           });
           
           break; // Stop after finding categories with the first successful selector
@@ -1050,39 +1158,16 @@ async function extractCustomizationContent(banner) {
           toggleGroups.forEach((toggles, parent) => {
             if (parent === 'default') {
               // Create a single category for all ungrouped toggles
-              const categoryItem = document.createElement('div');
-              categoryItem.style.backgroundColor = '#f9f9f9';
-              categoryItem.style.border = '1px solid #ddd';
-              categoryItem.style.borderRadius = '4px';
-              categoryItem.style.padding = '12px';
-              categoryItem.style.marginBottom = '10px';
+              let categoryName = 'Cookie Preferences';
+              let description = 'Manage your cookie preferences.';
               
-              const categoryLabel = document.createElement('label');
-              categoryLabel.style.color = '#000000';
-              categoryLabel.style.fontWeight = 'bold';
-              categoryLabel.style.cursor = 'pointer';
-              categoryLabel.textContent = 'Cookie Preferences';
+              // Create a representative toggle (first one)
+              const representativeToggle = toggles[0];
               
-              categoryItem.appendChild(categoryLabel);
-              
-              // Add all toggles in this group
-              toggles.forEach(toggle => {
-                const toggleClone = toggle.cloneNode(true);
-                toggleClone.style.marginLeft = '10px';
-                toggleClone.style.cursor = 'pointer';
-                categoryItem.appendChild(toggleClone);
-              });
-              
-              categoriesContainer.appendChild(categoryItem);
+              // Create accordion category item
+              const accordionCategory = createAccordionCategory(categoryName, description, representativeToggle);
+              categoriesContainer.appendChild(accordionCategory);
             } else {
-              // Create a category item for this parent group
-              const categoryItem = document.createElement('div');
-              categoryItem.style.backgroundColor = '#f9f9f9';
-              categoryItem.style.border = '1px solid #ddd';
-              categoryItem.style.borderRadius = '4px';
-              categoryItem.style.padding = '12px';
-              categoryItem.style.marginBottom = '10px';
-              
               // Extract category name from the parent
               let categoryName = '';
               const titleElement = parent.querySelector('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
@@ -1092,23 +1177,19 @@ async function extractCustomizationContent(banner) {
                 categoryName = 'Cookie Category';
               }
               
-              const categoryLabel = document.createElement('label');
-              categoryLabel.style.color = '#000000';
-              categoryLabel.style.fontWeight = 'bold';
-              categoryLabel.style.cursor = 'pointer';
-              categoryLabel.textContent = categoryName;
+              // Extract description
+              let description = '';
+              const descElement = parent.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
+              if (descElement) {
+                description = descElement.innerHTML.trim();
+              }
               
-              categoryItem.appendChild(categoryLabel);
+              // Create a representative toggle (first one)
+              const representativeToggle = toggles[0];
               
-              // Add all toggles in this group
-              toggles.forEach(toggle => {
-                const toggleClone = toggle.cloneNode(true);
-                toggleClone.style.marginLeft = '10px';
-                toggleClone.style.cursor = 'pointer';
-                categoryItem.appendChild(toggleClone);
-              });
-              
-              categoriesContainer.appendChild(categoryItem);
+              // Create accordion category item
+              const accordionCategory = createAccordionCategory(categoryName, description, representativeToggle);
+              categoriesContainer.appendChild(accordionCategory);
             }
           });
         }
@@ -1116,20 +1197,27 @@ async function extractCustomizationContent(banner) {
       
       // If still no categories found, create a simple default interface
       if (!foundCategories) {
-        categoriesContainer.innerHTML = `
-          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-            <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
-            <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
-          </div>
-          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-            <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
-            <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-          </div>
-          <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-            <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
-            <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-          </div>
-        `;
+        const necessaryCategory = createAccordionCategory(
+          'Necessary Cookies', 
+          'These cookies are essential for the website to function and cannot be switched off in our systems.',
+          createDisabledCheckbox(true)
+        );
+        
+        const analyticsCategory = createAccordionCategory(
+          'Analytics Cookies', 
+          'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site.',
+          createCheckbox(false)
+        );
+        
+        const marketingCategory = createAccordionCategory(
+          'Marketing Cookies', 
+          'These cookies may be set through our site by our advertising partners to build a profile of your interests.',
+          createCheckbox(false)
+        );
+        
+        categoriesContainer.appendChild(necessaryCategory);
+        categoriesContainer.appendChild(analyticsCategory);
+        categoriesContainer.appendChild(marketingCategory);
       }
       
       cleanContainer.appendChild(categoriesContainer);
@@ -1148,43 +1236,21 @@ async function extractCustomizationContent(banner) {
   }
 }
 
-// Process the customization clone
-function processCustomizationClone(clone) {
-  // Fix background color
-  clone.style.backgroundColor = '#ffffff';
-  
-  // Process links
-  const links = clone.querySelectorAll('a');
-  links.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      window.open(link.href, '_blank');
-    });
-    
-    link.style.color = '#2196F3';
-    link.style.textDecoration = 'underline';
-    link.style.cursor = 'pointer';
-  });
-  
-  // Process images
-  const images = clone.querySelectorAll('img');
-  images.forEach(img => {
-    if (!img.src && img.getAttribute('data-src')) {
-      img.src = img.getAttribute('data-src');
-    }
-  });
-  
-  // Make all text black
-  const textElements = clone.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, li, td, th, label');
-  textElements.forEach(element => {
-    element.style.color = '#000000';
-  });
-  
-  // Style checkboxes
-  const checkboxes = clone.querySelectorAll('input[type="checkbox"]');
-  checkboxes.forEach(checkbox => {
-    checkbox.style.marginRight = '8px';
-  });
+// Helper function to create a checkbox
+function createCheckbox(checked) {
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  return checkbox;
+}
+
+// Helper function to create a disabled checkbox
+function createDisabledCheckbox(checked) {
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  checkbox.disabled = true;
+  return checkbox;
 }
 
 // Create fallback customization content
@@ -1194,26 +1260,104 @@ function createFallbackCustomizationContent() {
   fallback.style.color = '#000000';
   fallback.style.backgroundColor = '#ffffff';
   fallback.style.padding = '15px';
-  fallback.innerHTML = `
-    <h3 style="color: #000000; margin-bottom: 15px;">Cookie Settings</h3>
-    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-      <label style="color: #000000; font-weight: bold; cursor: pointer;">Necessary Cookies</label>
-      <input type="checkbox" checked disabled style="margin-left: 10px; cursor: pointer;">
-    </div>
-    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-      <label style="color: #000000; font-weight: bold; cursor: pointer;">Analytics Cookies</label>
-      <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-    </div>
-    <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-      <label style="color: #000000; font-weight: bold; cursor: pointer;">Marketing Cookies</label>
-      <input type="checkbox" style="margin-left: 10px; cursor: pointer;">
-    </div>
-  `;
+  
+  // Title
+  const title = document.createElement('h3');
+  title.textContent = 'Cookie Settings';
+  title.style.color = '#000000';
+  title.style.marginBottom = '15px';
+  fallback.appendChild(title);
+  
+  // Necessary category (Always Active)
+  const necessarySubChoices = [
+    {
+      name: 'Authentication',
+      description: 'These cookies are necessary for the website to function and cannot be switched off.',
+      toggle: createDisabledCheckbox(true),
+      isAlwaysActive: true
+    },
+    {
+      name: 'Security',
+      description: 'These cookies help us protect the website from malicious activities.',
+      toggle: createDisabledCheckbox(true),
+      isAlwaysActive: true
+    }
+  ];
+  
+  const necessaryCategory = createAccordionCategory(
+    'Strictly Necessary Cookies', 
+    'These cookies are necessary for the website to function and cannot be switched off in our systems. They are usually only set in response to actions made by you which amount to a request for services, such as setting your privacy preferences, logging in or filling in forms.',
+    createDisabledCheckbox(true),
+    true,
+    necessarySubChoices
+  );
+  
+  // Analytics category
+  const analyticsSubChoices = [
+    {
+      name: 'Performance Measurement',
+      description: 'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site.',
+      toggle: createCheckbox(false),
+      isAlwaysActive: false
+    },
+    {
+      name: 'User Behavior Analysis',
+      description: 'These cookies help us understand how visitors interact with our website.',
+      toggle: createCheckbox(false),
+      isAlwaysActive: false
+    }
+  ];
+  
+  const analyticsCategory = createAccordionCategory(
+    'Analytics Cookies', 
+    'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site. They help us to know which pages are the most and least popular and see how visitors move around the site.',
+    createCheckbox(false),
+    false,
+    analyticsSubChoices
+  );
+  
+  // Marketing category
+  const marketingSubChoices = [
+    {
+      name: 'Personalized Advertising',
+      description: 'These cookies are used to make advertising messages more relevant to you.',
+      toggle: createCheckbox(false),
+      isAlwaysActive: false
+    },
+    {
+      name: 'Cross-Device Tracking',
+      description: 'These cookies may be set through our site by our advertising partners.',
+      toggle: createCheckbox(false),
+      isAlwaysActive: false
+    }
+  ];
+  
+  const marketingCategory = createAccordionCategory(
+    'Targeting Cookies', 
+    'These cookies are used to make advertising messages more relevant to you and may be set through our site by us or by our advertising partners. They may be used to build a profile of your interests and show you relevant advertising on our site or on other sites.',
+    createCheckbox(false),
+    false,
+    marketingSubChoices
+  );
+  
+  // Save choices category (Always Active)
+  const saveChoicesCategory = createAccordionCategory(
+    'Save and communicate privacy choices', 
+    'The choices you make regarding the purposes and entities listed in this notice are saved and made available to those entities in the form of digital signals (such as a string of characters). This is necessary in order to enable both this service and those entities to respect such choices.',
+    createDisabledCheckbox(true),
+    true
+  );
+  
+  fallback.appendChild(necessaryCategory);
+  fallback.appendChild(analyticsCategory);
+  fallback.appendChild(marketingCategory);
+  fallback.appendChild(saveChoicesCategory);
+  
   return fallback;
 }
 
-// Create simplified banner with customization view
-function createSimplifiedBanner(banner, buttons, bannerContent) {
+// Create simplified banner with prefetched customization content
+function createSimplifiedBanner(banner, buttons, bannerContent, customizationContent) {
   log("[Cookie Simplifier] Creating simplified banner...");
   
   try {
@@ -1350,14 +1494,9 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
     contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
     contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
     
-    // Main view container
-    const mainView = document.createElement('div');
-    mainView.id = 'simplified-cookie-main-view';
-    mainView.style.backgroundColor = '#ffffff'; // Ensure white background
-    
     // Add the extracted HTML content
     if (bannerContent) {
-      mainView.appendChild(bannerContent);
+      contentContainer.appendChild(bannerContent);
     } else {
       // Fallback content if extraction failed
       const fallbackContent = document.createElement('div');
@@ -1368,190 +1507,106 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
         <p style="color: #000000;">This website uses cookies to enhance your experience. By continuing to use this site, you agree to our use of cookies.</p>
         <p style="color: #000000;">For more information, please review the website's privacy policy.</p>
       `;
-      mainView.appendChild(fallbackContent);
+      contentContainer.appendChild(fallbackContent);
     }
     
-    // Customization view container (initially hidden)
-    const customizationView = document.createElement('div');
-    customizationView.id = 'simplified-cookie-customization-view';
-    customizationView.style.display = 'none';
-    customizationView.style.backgroundColor = '#ffffff'; // Ensure white background
+    // Add a separator between content and customization
+    const separator = document.createElement('hr');
+    separator.style.margin = '20px 0';
+    separator.style.border = 'none';
+    separator.style.borderTop = '1px solid #eee';
+    contentContainer.appendChild(separator);
     
-    // Button container for main view
+    // Add the prefetched customization content
+    if (customizationContent) {
+      contentContainer.appendChild(customizationContent);
+    } else {
+      // Fallback customization content if none was prefetched
+      const fallbackCustomization = createFallbackCustomizationContent();
+      contentContainer.appendChild(fallbackCustomization);
+    }
+    
+    newBanner.appendChild(contentContainer);
+    
+    // Button container (always at the bottom)
     const buttonContainer = document.createElement('div');
     buttonContainer.style.display = 'flex';
     buttonContainer.style.flexDirection = 'column';
     buttonContainer.style.gap = '10px';
-    buttonContainer.style.marginTop = '15px';
+    buttonContainer.style.padding = '0 20px 20px 20px';
     buttonContainer.style.backgroundColor = '#ffffff'; // Ensure white background
     
-    // Add original buttons to main view
-    buttons.forEach(button => {
-      const btn = document.createElement('button');
-      btn.textContent = button.text;
-      btn.setAttribute('tabindex', '0');
-      btn.style.padding = '12px 16px';
-      btn.style.cursor = 'pointer';
-      btn.style.border = 'none';
-      btn.style.borderRadius = '4px';
-      btn.style.fontSize = '14px';
-      btn.style.fontWeight = 'bold';
-      btn.style.width = '100%'; // Make buttons full width
+    // Add Accept button
+    const acceptBtn = document.createElement('button');
+    acceptBtn.textContent = 'Accept All';
+    acceptBtn.setAttribute('tabindex', '0');
+    acceptBtn.style.padding = '12px 16px';
+    acceptBtn.style.cursor = 'pointer';
+    acceptBtn.style.border = 'none';
+    acceptBtn.style.borderRadius = '4px';
+    acceptBtn.style.fontSize = '14px';
+    acceptBtn.style.fontWeight = 'bold';
+    acceptBtn.style.width = '100%'; // Make buttons full width
+    acceptBtn.style.backgroundColor = '#4CAF50';
+    acceptBtn.style.color = 'white';
+    
+    // Add click handler for Accept button
+    acceptBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Accept All button clicked");
       
-      // Set button colors based on type
-      if (button.type === 'accept') {
-        btn.style.backgroundColor = '#4CAF50';
-        btn.style.color = 'white';
-      } else if (button.type === 'reject') {
-        btn.style.backgroundColor = '#f44336';
-        btn.style.color = 'white';
-      } else if (button.type === 'customize') {
-        btn.style.backgroundColor = '#2196F3';
-        btn.style.color = 'white';
-      } else {
-        btn.style.backgroundColor = '#888';
-        btn.style.color = 'white';
+      // Find and click the original accept button
+      const originalAcceptBtn = buttons.find(btn => btn.type === 'accept');
+      if (originalAcceptBtn) {
+        try {
+          const cookieBefore = document.cookie;
+          
+          // Ensure the original button is still in the DOM
+          if (!document.body.contains(originalAcceptBtn.element)) {
+            log("[Cookie Simplifier] Original accept button not in DOM, reattaching temporarily");
+            const tempContainer = document.createElement('div');
+            tempContainer.style.display = 'none';
+            tempContainer.appendChild(originalAcceptBtn.element);
+            document.body.appendChild(tempContainer);
+            originalAcceptBtn.element.click();
+            tempContainer.remove();
+          } else {
+            originalAcceptBtn.element.click();
+          }
+          
+          setTimeout(() => {
+            const cookieAfter = document.cookie;
+            log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+          }, 500);
+        } catch (error) {
+          log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
+        }
       }
       
-      // Add click handler
-      btn.addEventListener('click', () => {
-        if (button.type === 'customize') {
-          // Show customization view
-          log("[Cookie Simplifier] Showing customization view");
-          mainView.style.display = 'none';
-          customizationView.style.display = 'block';
-          
-          // Load customization content if not already loaded
-          if (customizationView.children.length === 0) {
-            log("[Cookie Simplifier] Loading customization content");
-            
-            // Show a loading indicator
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.textContent = 'Loading cookie preferences...';
-            loadingIndicator.style.padding = '20px';
-            loadingIndicator.style.textAlign = 'center';
-            loadingIndicator.style.color = '#000000';
-            customizationView.appendChild(loadingIndicator);
-            
-            // Extract customization content
-            extractCustomizationContent(banner).then(content => {
-              // Remove loading indicator
-              if (loadingIndicator.parentNode) {
-                loadingIndicator.parentNode.removeChild(loadingIndicator);
-              }
-              
-              // Add the extracted content
-              customizationView.appendChild(content);
-              
-              // Add back button
-              const backButton = document.createElement('button');
-              backButton.textContent = '← Back';
-              backButton.style.marginTop = '15px';
-              backButton.style.padding = '10px 15px';
-              backButton.style.backgroundColor = '#888';
-              backButton.style.color = 'white';
-              backButton.style.border = 'none';
-              backButton.style.borderRadius = '4px';
-              backButton.style.cursor = 'pointer';
-              backButton.style.fontSize = '14px';
-              backButton.style.fontWeight = 'bold';
-              
-              backButton.addEventListener('click', () => {
-                log("[Cookie Simplifier] Going back to main view");
-                customizationView.style.display = 'none';
-                mainView.style.display = 'block';
-              });
-              
-              customizationView.appendChild(backButton);
-              
-              // Add accept button for customization
-              const acceptButton = document.createElement('button');
-              acceptButton.textContent = 'Accept Selection';
-              acceptButton.style.marginTop = '10px';
-              acceptButton.style.padding = '12px 16px';
-              acceptButton.style.backgroundColor = '#4CAF50';
-              acceptButton.style.color = 'white';
-              acceptButton.style.border = 'none';
-              acceptButton.style.borderRadius = '4px';
-              acceptButton.style.cursor = 'pointer';
-              acceptButton.style.fontSize = '14px';
-              acceptButton.style.fontWeight = 'bold';
-              acceptButton.style.width = '100%';
-              
-              acceptButton.addEventListener('click', () => {
-                log("[Cookie Simplifier] Accepted customized settings");
-                
-                // Find and click the original accept button in the hidden customization page
-                const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
-                if (hiddenCustomizationPage) {
-                  const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
-                  if (saveButton) {
-                    saveButton.click();
-                  } else {
-                    log("[Cookie Simplifier] Could not find save button in hidden customization page");
-                  }
-                }
-                
-                // Close our banner
-                newBanner.remove();
-              });
-              
-              customizationView.appendChild(acceptButton);
-            }).catch(error => {
-              log(`[Cookie Simplifier] Error loading customization content: ${error.message}`);
-              
-              // Remove loading indicator
-              if (loadingIndicator.parentNode) {
-                loadingIndicator.parentNode.removeChild(loadingIndicator);
-              }
-              
-              // Show error message
-              const errorMessage = document.createElement('div');
-              errorMessage.textContent = 'Error loading cookie preferences. Please try again.';
-              errorMessage.style.color = 'red';
-              errorMessage.style.padding = '20px';
-              errorMessage.style.textAlign = 'center';
-              customizationView.appendChild(errorMessage);
-              
-              // Add back button
-              const backButton = document.createElement('button');
-              backButton.textContent = '← Back';
-              backButton.style.marginTop = '15px';
-              backButton.style.padding = '10px 15px';
-              backButton.style.backgroundColor = '#888';
-              backButton.style.color = 'white';
-              backButton.style.border = 'none';
-              backButton.style.borderRadius = '4px';
-              backButton.style.cursor = 'pointer';
-              backButton.style.fontSize = '14px';
-              backButton.style.fontWeight = 'bold';
-              
-              backButton.addEventListener('click', () => {
-                log("[Cookie Simplifier] Going back to main view");
-                customizationView.style.display = 'none';
-                mainView.style.display = 'block';
-              });
-              
-              customizationView.appendChild(backButton);
-            });
-          }
-        } else {
-          // Handle accept/reject buttons
-          log(`[Cookie Simplifier] Clicked button: ${button.type}, Text: "${button.text}"`);
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Accept button
+    acceptBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Accept All button triggered via keyboard");
+        
+        // Find and click the original accept button
+        const originalAcceptBtn = buttons.find(btn => btn.type === 'accept');
+        if (originalAcceptBtn) {
           try {
             const cookieBefore = document.cookie;
             
-            // Ensure the original button is still in the DOM for OneTrust
-            if (!document.body.contains(button.element)) {
-              log("[Cookie Simplifier] Original button not in DOM, reattaching temporarily");
+            // Ensure the original button is still in the DOM
+            if (!document.body.contains(originalAcceptBtn.element)) {
+              log("[Cookie Simplifier] Original accept button not in DOM, reattaching temporarily");
               const tempContainer = document.createElement('div');
               tempContainer.style.display = 'none';
-              tempContainer.appendChild(button.element);
+              tempContainer.appendChild(originalAcceptBtn.element);
               document.body.appendChild(tempContainer);
-              button.element.click();
+              originalAcceptBtn.element.click();
               tempContainer.remove();
             } else {
-              button.element.click();
+              originalAcceptBtn.element.click();
             }
             
             setTimeout(() => {
@@ -1559,172 +1614,163 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
               log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
             }, 500);
           } catch (error) {
-            log(`[Cookie Simplifier] Error triggering button click: ${error.message}`);
-          }
-          newBanner.remove();
-        }
-      });
-      
-      // Add keyboard support
-      btn.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          if (button.type === 'customize') {
-            // Show customization view
-            log("[Cookie Simplifier] Showing customization view");
-            mainView.style.display = 'none';
-            customizationView.style.display = 'block';
-            
-            // Load customization content if not already loaded
-            if (customizationView.children.length === 0) {
-              log("[Cookie Simplifier] Loading customization content");
-              
-              // Show a loading indicator
-              const loadingIndicator = document.createElement('div');
-              loadingIndicator.textContent = 'Loading cookie preferences...';
-              loadingIndicator.style.padding = '20px';
-              loadingIndicator.style.textAlign = 'center';
-              loadingIndicator.style.color = '#000000';
-              customizationView.appendChild(loadingIndicator);
-              
-              // Extract customization content
-              extractCustomizationContent(banner).then(content => {
-                // Remove loading indicator
-                if (loadingIndicator.parentNode) {
-                  loadingIndicator.parentNode.removeChild(loadingIndicator);
-                }
-                
-                // Add the extracted content
-                customizationView.appendChild(content);
-                
-                // Add back button
-                const backButton = document.createElement('button');
-                backButton.textContent = '← Back';
-                backButton.style.marginTop = '15px';
-                backButton.style.padding = '10px 15px';
-                backButton.style.backgroundColor = '#888';
-                backButton.style.color = 'white';
-                backButton.style.border = 'none';
-                backButton.style.borderRadius = '4px';
-                backButton.style.cursor = 'pointer';
-                backButton.style.fontSize = '14px';
-                backButton.style.fontWeight = 'bold';
-                
-                backButton.addEventListener('click', () => {
-                  log("[Cookie Simplifier] Going back to main view");
-                  customizationView.style.display = 'none';
-                  mainView.style.display = 'block';
-                });
-                
-                customizationView.appendChild(backButton);
-                
-                // Add accept button for customization
-                const acceptButton = document.createElement('button');
-                acceptButton.textContent = 'Accept Selection';
-                acceptButton.style.marginTop = '10px';
-                acceptButton.style.padding = '12px 16px';
-                acceptButton.style.backgroundColor = '#4CAF50';
-                acceptButton.style.color = 'white';
-                acceptButton.style.border = 'none';
-                acceptButton.style.borderRadius = '4px';
-                acceptButton.style.cursor = 'pointer';
-                acceptButton.style.fontSize = '14px';
-                acceptButton.style.fontWeight = 'bold';
-                acceptButton.style.width = '100%';
-                
-                acceptButton.addEventListener('click', () => {
-                  log("[Cookie Simplifier] Accepted customized settings");
-                  
-                  // Find and click the original accept button in the hidden customization page
-                  const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
-                  if (hiddenCustomizationPage) {
-                    const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
-                    if (saveButton) {
-                      saveButton.click();
-                    } else {
-                      log("[Cookie Simplifier] Could not find save button in hidden customization page");
-                    }
-                  }
-                  
-                  // Close our banner
-                  newBanner.remove();
-                });
-                
-                customizationView.appendChild(acceptButton);
-              }).catch(error => {
-                log(`[Cookie Simplifier] Error loading customization content: ${error.message}`);
-                
-                // Remove loading indicator
-                if (loadingIndicator.parentNode) {
-                  loadingIndicator.parentNode.removeChild(loadingIndicator);
-                }
-                
-                // Show error message
-                const errorMessage = document.createElement('div');
-                errorMessage.textContent = 'Error loading cookie preferences. Please try again.';
-                errorMessage.style.color = 'red';
-                errorMessage.style.padding = '20px';
-                errorMessage.style.textAlign = 'center';
-                customizationView.appendChild(errorMessage);
-                
-                // Add back button
-                const backButton = document.createElement('button');
-                backButton.textContent = '← Back';
-                backButton.style.marginTop = '15px';
-                backButton.style.padding = '10px 15px';
-                backButton.style.backgroundColor = '#888';
-                backButton.style.color = 'white';
-                backButton.style.border = 'none';
-                backButton.style.borderRadius = '4px';
-                backButton.style.cursor = 'pointer';
-                backButton.style.fontSize = '14px';
-                backButton.style.fontWeight = 'bold';
-                
-                backButton.addEventListener('click', () => {
-                  log("[Cookie Simplifier] Going back to main view");
-                  customizationView.style.display = 'none';
-                  mainView.style.display = 'block';
-                });
-                
-                customizationView.appendChild(backButton);
-              });
-            }
-          } else {
-            // Handle accept/reject buttons
-            log(`[Cookie Simplifier] Keyboard triggered button: ${button.type}`);
-            try {
-              const cookieBefore = document.cookie;
-              
-              if (!document.body.contains(button.element)) {
-                log("[Cookie Simplifier] Original button not in DOM, reattaching temporarily");
-                const tempContainer = document.createElement('div');
-                tempContainer.style.display = 'none';
-                tempContainer.appendChild(button.element);
-                document.body.appendChild(tempContainer);
-                button.element.click();
-                tempContainer.remove();
-              } else {
-                button.element.click();
-              }
-              
-              setTimeout(() => {
-                const cookieAfter = document.cookie;
-                log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
-              }, 500);
-            } catch (error) {
-              log(`[Cookie Simplifier] Error triggering button click: ${error.message}`);
-            }
-            newBanner.remove();
+            log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
           }
         }
-      });
-      
-      buttonContainer.appendChild(btn);
+        
+        newBanner.remove();
+      }
     });
     
-    mainView.appendChild(buttonContainer);
-    contentContainer.appendChild(mainView);
-    contentContainer.appendChild(customizationView);
-    newBanner.appendChild(contentContainer);
+    buttonContainer.appendChild(acceptBtn);
+    
+    // Add Reject button
+    const rejectBtn = document.createElement('button');
+    rejectBtn.textContent = 'Reject All';
+    rejectBtn.setAttribute('tabindex', '0');
+    rejectBtn.style.padding = '12px 16px';
+    rejectBtn.style.cursor = 'pointer';
+    rejectBtn.style.border = 'none';
+    rejectBtn.style.borderRadius = '4px';
+    rejectBtn.style.fontSize = '14px';
+    rejectBtn.style.fontWeight = 'bold';
+    rejectBtn.style.width = '100%'; // Make buttons full width
+    rejectBtn.style.backgroundColor = '#f44336';
+    rejectBtn.style.color = 'white';
+    
+    // Add click handler for Reject button
+    rejectBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Reject All button clicked");
+      
+      // Find and click the original reject button
+      const originalRejectBtn = buttons.find(btn => btn.type === 'reject');
+      if (originalRejectBtn) {
+        try {
+          const cookieBefore = document.cookie;
+          
+          // Ensure the original button is still in the DOM
+          if (!document.body.contains(originalRejectBtn.element)) {
+            log("[Cookie Simplifier] Original reject button not in DOM, reattaching temporarily");
+            const tempContainer = document.createElement('div');
+            tempContainer.style.display = 'none';
+            tempContainer.appendChild(originalRejectBtn.element);
+            document.body.appendChild(tempContainer);
+            originalRejectBtn.element.click();
+            tempContainer.remove();
+          } else {
+            originalRejectBtn.element.click();
+          }
+          
+          setTimeout(() => {
+            const cookieAfter = document.cookie;
+            log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+          }, 500);
+        } catch (error) {
+          log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
+        }
+      }
+      
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Reject button
+    rejectBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Reject All button triggered via keyboard");
+        
+        // Find and click the original reject button
+        const originalRejectBtn = buttons.find(btn => btn.type === 'reject');
+        if (originalRejectBtn) {
+          try {
+            const cookieBefore = document.cookie;
+            
+            // Ensure the original button is still in the DOM
+            if (!document.body.contains(originalRejectBtn.element)) {
+              log("[Cookie Simplifier] Original reject button not in DOM, reattaching temporarily");
+              const tempContainer = document.createElement('div');
+              tempContainer.style.display = 'none';
+              tempContainer.appendChild(originalRejectBtn.element);
+              document.body.appendChild(tempContainer);
+              originalRejectBtn.element.click();
+              tempContainer.remove();
+            } else {
+              originalRejectBtn.element.click();
+            }
+            
+            setTimeout(() => {
+              const cookieAfter = document.cookie;
+              log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+            }, 500);
+          } catch (error) {
+            log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
+          }
+        }
+        
+        newBanner.remove();
+      }
+    });
+    
+    buttonContainer.appendChild(rejectBtn);
+    
+    // Add Accept Selection button
+    const acceptSelectionBtn = document.createElement('button');
+    acceptSelectionBtn.textContent = 'Accept Selection';
+    acceptSelectionBtn.setAttribute('tabindex', '0');
+    acceptSelectionBtn.style.padding = '12px 16px';
+    acceptSelectionBtn.style.cursor = 'pointer';
+    acceptSelectionBtn.style.border = 'none';
+    acceptSelectionBtn.style.borderRadius = '4px';
+    acceptSelectionBtn.style.fontSize = '14px';
+    acceptSelectionBtn.style.fontWeight = 'bold';
+    acceptSelectionBtn.style.width = '100%'; // Make buttons full width
+    acceptSelectionBtn.style.backgroundColor = '#2196F3';
+    acceptSelectionBtn.style.color = 'white';
+    
+    // Add click handler for Accept Selection button
+    acceptSelectionBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Accept Selection button clicked");
+      
+      // Try to find and click the save button in the original customization page
+      const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
+      if (hiddenCustomizationPage) {
+        const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
+        if (saveButton) {
+          saveButton.click();
+        } else {
+          log("[Cookie Simplifier] Could not find save button in hidden customization page");
+        }
+      } else {
+        log("[Cookie Simplifier] No hidden customization page found");
+      }
+      
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Accept Selection button
+    acceptSelectionBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Accept Selection button triggered via keyboard");
+        
+        // Try to find and click the save button in the original customization page
+        const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
+        if (hiddenCustomizationPage) {
+          const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
+          if (saveButton) {
+            saveButton.click();
+          } else {
+            log("[Cookie Simplifier] Could not find save button in hidden customization page");
+          }
+        } else {
+          log("[Cookie Simplifier] No hidden customization page found");
+        }
+        
+        newBanner.remove();
+      }
+    });
+    
+    buttonContainer.appendChild(acceptSelectionBtn);
+    
+    newBanner.appendChild(buttonContainer);
     
     // Add a subtle shadow indicator for scrollable content
     const scrollIndicator = document.createElement('div');
@@ -1779,27 +1825,29 @@ function createSimplifiedBanner(banner, buttons, bannerContent) {
   }
 }
 
-// Completely remove banner and store for restoration
-function removeBanner(banner) {
+// Hide the original banner instead of removing it
+function hideBanner(banner) {
   if (!banner) {
-    log("[Cookie Simplifier] No banner to remove");
+    log("[Cookie Simplifier] No banner to hide");
     return;
   }
   
   try {
     const bannerInfo = {
       element: banner,
-      parent: banner.parentNode,
-      nextSibling: banner.nextSibling,
+      originalDisplay: banner.style.display || '',
       className: banner.className,
       id: banner.id,
       style: banner.getAttribute('style')
     };
     
-    log(`[Cookie Simplifier] Removing banner - ID: ${banner.id || 'none'}, Parent: ${banner.parentNode?.tagName || 'none'}, Classes: ${banner.className}`);
+    log(`[Cookie Simplifier] Hiding banner - ID: ${banner.id || 'none'}, Original display: ${bannerInfo.originalDisplay}`);
     originalBanners.set(banner, bannerInfo);
     
-    // Remove OneTrust-specific overlay and container
+    // Hide the banner
+    banner.style.display = 'none';
+    
+    // Hide OneTrust-specific overlay and container
     const oneTrustElements = [
       { selector: '.onetrust-pc-dark-filter', name: 'OneTrust overlay' },
       { selector: '#onetrust-consent-sdk', name: 'OneTrust container' }
@@ -1810,63 +1858,45 @@ function removeBanner(banner) {
       if (element && isVisible(element)) {
         const elementInfo = {
           element: element,
-          parent: element.parentNode,
-          nextSibling: element.nextSibling,
+          originalDisplay: element.style.display || '',
           className: element.className,
           id: element.id,
           style: element.getAttribute('style')
         };
         originalBanners.set(element, elementInfo);
-        if (element.parentNode) {
-          element.parentNode.removeChild(element);
-          log(`[Cookie Simplifier] Removed ${name}`);
-        } else {
-          log(`[Cookie Simplifier] Failed to remove ${name}: no parent node`);
-        }
+        element.style.display = 'none';
+        log(`[Cookie Simplifier] Hid ${name}`);
       } else if (element) {
         log(`[Cookie Simplifier] ${name} found but not visible`);
       }
     });
     
-    // Remove the banner itself
-    if (banner.parentNode) {
-      banner.parentNode.removeChild(banner);
-      log("[Cookie Simplifier] Completely removed banner from DOM");
-    } else {
-      log("[Cookie Simplifier] Failed to remove banner: no parent node");
-    }
+    log("[Cookie Simplifier] Banner hidden from view");
   } catch (error) {
-    log(`[Cookie Simplifier] Error removing banner: ${error.message}`);
+    log(`[Cookie Simplifier] Error hiding banner: ${error.message}`);
   }
 }
 
-// Restore a removed banner
+// Restore a hidden banner
 function restoreBanner(bannerInfo) {
   try {
-    if (!bannerInfo.parent) {
-      log("[Cookie Simplifier] Cannot restore banner: no parent node");
+    const banner = bannerInfo.element;
+    if (!banner) {
+      log("[Cookie Simplifier] Cannot restore banner: no element");
       return;
     }
     
-    const newBanner = bannerInfo.element.cloneNode(true);
-    if (bannerInfo.className) newBanner.className = bannerInfo.className;
-    if (bannerInfo.id) newBanner.id = bannerInfo.id;
-    if (bannerInfo.style) newBanner.setAttribute('style', bannerInfo.style);
+    // Restore the original display value
+    banner.style.display = bannerInfo.originalDisplay;
     
-    if (bannerInfo.nextSibling) {
-      bannerInfo.parent.insertBefore(newBanner, bannerInfo.nextSibling);
-    } else {
-      bannerInfo.parent.appendChild(newBanner);
-    }
-    
-    log("[Cookie Simplifier] Restored banner to DOM: " + (newBanner.id || newBanner.tagName));
+    log("[Cookie Simplifier] Restored banner to view: " + (banner.id || banner.tagName));
   } catch (error) {
     log(`[Cookie Simplifier] Error restoring banner: ${error.message}`);
   }
 }
 
 // Main function to handle cookie banners
-function handleCookieBanners() {
+async function handleCookieBanners() {
   if (isProcessing) {
     log("[Cookie Simplifier] Already processing, skipping");
     return;
@@ -1895,8 +1925,20 @@ function handleCookieBanners() {
       return;
     }
     
-    removeBanner(banner);
-    const simplifiedBanner = createSimplifiedBanner(banner, buttons, bannerContent);
+    // Prefetch customization content
+    log("[Cookie Simplifier] Prefetching customization content");
+    let customizationContent = null;
+    try {
+      customizationContent = await extractCustomizationContent(banner);
+      prefetchedCustomizationContent = customizationContent;
+      log("[Cookie Simplifier] Customization content prefetched successfully");
+    } catch (error) {
+      log(`[Cookie Simplifier] Error prefetching customization content: ${error.message}`);
+      customizationContent = createFallbackCustomizationContent();
+    }
+    
+    hideBanner(banner);
+    const simplifiedBanner = createSimplifiedBanner(banner, buttons, bannerContent, customizationContent);
     if (simplifiedBanner) {
       document.body.appendChild(simplifiedBanner);
       log("[Cookie Simplifier] Simplified banner added to page");
@@ -2067,31 +2109,31 @@ function init() {
 // Listen for settings changes
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "settingsChanged") {
-    log("[Cookie Simplifier] Settings changed, updating");
+    log("[Cookie Simplifier] Settings changed, updating extension state");
     
     extensionEnabled = message.settings.enabled;
     debugMode = message.settings.debugMode;
-    
-    log(`[Cookie Simplifier] New settings: enabled=${extensionEnabled}, debugMode=${debugMode}`);
+    autoOpenCustomization = message.settings.autoOpenCustomization;
     
     if (extensionEnabled) {
-      log("[Cookie Simplifier] Extension enabled, handling banners");
+      log("[Cookie Simplifier] Extension enabled, checking for banners");
       handleCookieBanners();
       setupObserver();
     } else {
-      log("[Cookie Simplifier] Extension disabled, removing banners");
+      log("[Cookie Simplifier] Extension disabled, removing simplified banner and restoring original");
       removeExistingBanners();
       restoreOriginalBanners();
       
       if (observer) {
         observer.disconnect();
         observer = null;
-        log("[Cookie Simplifier] Disconnected observer");
       }
     }
+    
+    sendResponse({ success: true });
   }
   
-  return true;
+  return true; // Indicates async response
 });
 
 init();

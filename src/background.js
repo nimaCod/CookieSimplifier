@@ -1,5 +1,4 @@
 console.log("[Cookie Simplifier] Background service worker started");
-
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[Cookie Simplifier] Extension installed");
@@ -7,16 +6,17 @@ chrome.runtime.onInstalled.addListener(() => {
   // Set default settings
   chrome.storage.sync.set({
     enabled: true,
-    debugMode: true
+    debugMode: true,
+    autoOpenCustomization: true, // Default to auto-open
+    excludedDomains: []
   });
 });
-
 // Listen for messages from content script or popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Cookie Simplifier] Received message:", message);
   
   if (message.action === "getSettings") {
-    chrome.storage.sync.get(['enabled', 'debugMode'], (data) => {
+    chrome.storage.sync.get(['enabled', 'debugMode', 'autoOpenCustomization', 'excludedDomains'], (data) => {
       sendResponse(data);
     });
     return true; // Indicates async response
@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("[Cookie Simplifier] Forwarding settings change to all tabs");
     
     // Get current settings
-    chrome.storage.sync.get(['enabled', 'debugMode'], (settings) => {
+    chrome.storage.sync.get(['enabled', 'debugMode', 'autoOpenCustomization'], (settings) => {
       // Notify all tabs about the settings change
       chrome.tabs.query({}, (tabs) => {
         tabs.forEach(tab => {
