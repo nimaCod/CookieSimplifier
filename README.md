@@ -1,0 +1,1 @@
+to build this app run `node build.js` and from js/ files src/content.js is created.
