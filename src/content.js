@@ -1,26 +1,16 @@
-console.log("[Cookie Simplifier] Content script loaded");
-// Global variables to track extension state
-let extensionEnabled = true;
-let debugMode = true;
-let isProcessing = false; // Flag to prevent re-entrancy
-let observer = null; // Reference to our observer
-let originalBanners = new Map(); // Track original banners we've hidden
-let lastProcessed = 0; // For MutationObserver throttling
-let customizationView = null; // Track if we're showing customization view
-let prefetchedCustomizationContent = null; // Store prefetched customization content
 
-// OneTrust-specific selectors
-const ONETRUST_SELECTORS = [
-  '#onetrust-banner-sdk', // Main OneTrust banner
-  '#onetrust-consent-sdk', // OneTrust container
-  '#onetrust-group-container', // OneTrust group container
-  '#onetrust-policy', // OneTrust policy section
-  '.onetrust-banner-sdk', // Alternative class name
+// ============ constants.js ============
+// All selectors and constants
+export const ONETRUST_SELECTORS = [
+  '#onetrust-banner-sdk',
+  '#onetrust-consent-sdk',
+  '#onetrust-group-container',
+  '#onetrust-policy',
+  '.onetrust-banner-sdk',
   '#ot-sdk-container',
 ];
 
-// General cookie banner selectors
-const GENERAL_BANNER_SELECTORS = [
+export const GENERAL_BANNER_SELECTORS = [
   '[id*="cookie"]',
   '[class*="cookie"]',
   '[id*="consent"]',
@@ -44,8 +34,7 @@ const GENERAL_BANNER_SELECTORS = [
   '[data-cmp-host]'
 ];
 
-// Elements to exclude (common false positives)
-const EXCLUDE_SELECTORS = [
+export const EXCLUDE_SELECTORS = [
   '[aria-modal="true"][role="dialog"]:not([aria-label*="cookie"])',
   '[role="dialog"]:not([aria-label*="cookie"]):not([aria-label*="consent"]):not([aria-label*="privacy"])',
   '.signin-dialog',
@@ -61,22 +50,19 @@ const EXCLUDE_SELECTORS = [
   '[class*="login"]'
 ];
 
-// Overlay selectors for dark filters and backdrops
-const OVERLAY_SELECTORS = [
-  '.onetrust-pc-dark-filter',  // OneTrust dark overlay
-  '.ot-sdk-overlay',          // OneTrust overlay
-  '.cookie-modal-backdrop',   // Generic cookie modal backdrop
-  '[class*="modal-backdrop"]' // Any modal backdrop
+export const OVERLAY_SELECTORS = [
+  '.onetrust-pc-dark-filter',
+  '.ot-sdk-overlay',
+  '.cookie-modal-backdrop',
+  '[class*="modal-backdrop"]'
 ];
 
-// Combined selectors
-const BANNER_SELECTORS = [...ONETRUST_SELECTORS, ...GENERAL_BANNER_SELECTORS];
+export const BANNER_SELECTORS = [...ONETRUST_SELECTORS, ...GENERAL_BANNER_SELECTORS];
 
-// Content selectors for extraction
-const CONTENT_SELECTORS = [
-  '#onetrust-policy-text', // OneTrust
-  '#onetrust-policy-title', // OneTrust title
-  '.ot-b-addl-desc', // OneTrust additional description
+export const CONTENT_SELECTORS = [
+  '#onetrust-policy-text',
+  '#onetrust-policy-title',
+  '.ot-b-addl-desc',
   '.banner-text',
   '.cookie-message',
   '.consent-message',
@@ -84,31 +70,42 @@ const CONTENT_SELECTORS = [
   '.cookie-notice-text',
   '[data-testid*="message"]',
   '[data-consent*="message"]',
-  '.cmp-intro_intro', // Quantcast
+  '.cmp-intro_intro',
   '.cookie-consent__message',
   '.banner-content',
   '.consent-content'
 ];
 
-// Customization page selectors
-const CUSTOMIZATION_SELECTORS = [
-  '#onetrust-pc-sdk',           // OneTrust preference center
-  '#onetrust-consent-sdk',      // OneTrust consent SDK
-  '.cookie-preferences',        // Generic cookie preferences
-  '.consent-preferences',       // Generic consent preferences
-  '.privacy-preferences',       // Generic privacy preferences
-  '[id*="preference-center"]',  // Preference center by ID
-  '[class*="preference-center"]' // Preference center by class
+export const CUSTOMIZATION_SELECTORS = [
+  '#onetrust-pc-sdk',
+  '#onetrust-consent-sdk',
+  '.cookie-preferences',
+  '.consent-preferences',
+  '.privacy-preferences',
+  '[id*="preference-center"]',
+  '[class*="preference-center"]'
 ];
 
-const buttonKeywords = {
+export const buttonKeywords = {
   accept: ['accept', 'agree', 'allow', 'ok', 'confirm', 'got it', 'understand'],
   reject: ['reject', 'decline', 'deny', 'disagree', 'no thanks', 'opt out'],
   customize: ['customize', 'settings', 'preferences', 'manage', 'options']
 };
+// ============ utils.js ============
+import { EXCLUDE_SELECTORS } from './constants.js';
+
+// Global variables
+export let extensionEnabled = true;
+export let debugMode = true;
+export let isProcessing = false;
+export let observer = null;
+export let originalBanners = new Map();
+export let lastProcessed = 0;
+export let customizationView = null;
+export let prefetchedCustomizationContent = null;
 
 // Function to get settings
-function getSettings(callback) {
+export function getSettings(callback) {
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
     if (chrome.runtime.lastError) {
       log(`[Cookie Simplifier] Error getting settings: ${chrome.runtime.lastError.message}`);
@@ -116,21 +113,21 @@ function getSettings(callback) {
     }
     extensionEnabled = settings.enabled !== undefined ? settings.enabled : true;
     debugMode = settings.debugMode !== undefined ? settings.debugMode : true;
-    autoOpenCustomization = settings.autoOpenCustomization !== undefined ? settings.autoOpenCustomization : true;
+    const autoOpenCustomization = settings.autoOpenCustomization !== undefined ? settings.autoOpenCustomization : true;
     log(`[Cookie Simplifier] Settings retrieved: enabled=${extensionEnabled}, debugMode=${debugMode}, autoOpenCustomization=${autoOpenCustomization}`);
     callback(settings);
   });
 }
 
 // Logging function that respects debug mode
-function log(message) {
+export function log(message) {
   if (debugMode) {
     console.log(message);
   }
 }
 
 // Function to check if element is visible
-function isVisible(element) {
+export function isVisible(element) {
   if (!element) {
     log("[Cookie Simplifier] Visibility check failed: element is null");
     return false;
@@ -153,7 +150,7 @@ function isVisible(element) {
 }
 
 // Function to check if element should be excluded
-function shouldExclude(element) {
+export function shouldExclude(element) {
   for (const selector of EXCLUDE_SELECTORS) {
     if (element.matches(selector) || element.closest(selector)) {
       log(`[Cookie Simplifier] Excluding element with selector: ${selector}`);
@@ -173,8 +170,35 @@ function shouldExclude(element) {
   return false;
 }
 
+// Helper function to create a checkbox
+export function createCheckbox(checked) {
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  return checkbox;
+}
+
+// Helper function to create a disabled checkbox
+export function createDisabledCheckbox(checked) {
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = checked;
+  checkbox.disabled = true;
+  return checkbox;
+}
+// ============ extractors.js ============
+import { log, isVisible, shouldExclude, originalBanners } from './utils.js';
+import { 
+  GENERAL_BANNER_SELECTORS, 
+  BANNER_SELECTORS, 
+  CONTENT_SELECTORS, 
+  buttonKeywords,
+  CUSTOMIZATION_SELECTORS,
+  OVERLAY_SELECTORS
+} from './constants.js';
+
 // Find cookie banner
-function findBanner() {
+export function findBanner() {
   log("[Cookie Simplifier] Searching for cookie banner...");
   
   for (const selector of GENERAL_BANNER_SELECTORS) {
@@ -325,7 +349,7 @@ function extractOneTrustContent(banner) {
 }
 
 // Extract HTML content from banner
-function extractBannerContent(banner) {
+export function extractBannerContent(banner) {
   log("[Cookie Simplifier] Extracting banner HTML content...");
   
   // Check if it's a OneTrust banner
@@ -471,7 +495,7 @@ function extractOneTrustButtons(banner) {
 }
 
 // Extract buttons from banner
-function extractButtons(banner) {
+export function extractButtons(banner) {
   log("[Cookie Simplifier] Extracting buttons from banner...");
   
   // Check if it's a OneTrust banner
@@ -532,172 +556,8 @@ function extractButtons(banner) {
   }
 }
 
-
-// Create an accordion category item with sub-choices
-// Create an accordion category item with sub-choices
-function createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = []) {
-  const categoryItem = document.createElement('div');
-  categoryItem.className = 'cookie-category-item';
-  categoryItem.style.backgroundColor = '#f9f9f9';
-  categoryItem.style.border = '1px solid #ddd';
-  categoryItem.style.borderRadius = '4px';
-  categoryItem.style.marginBottom = '10px';
-  categoryItem.style.overflow = 'hidden';
-  
-  // Category header (always visible)
-  const header = document.createElement('div');
-  header.className = 'cookie-category-header';
-  header.style.display = 'flex';
-  header.style.justifyContent = 'space-between';
-  header.style.alignItems = 'center';
-  header.style.padding = '12px';
-  header.style.cursor = 'pointer';
-  header.style.backgroundColor = '#f9f9f9';
-  
-  const nameContainer = document.createElement('div');
-  nameContainer.style.display = 'flex';
-  nameContainer.style.alignItems = 'center';
-  
-  const categoryNameElement = document.createElement('span');
-  categoryNameElement.className = 'cookie-category-name';
-  categoryNameElement.textContent = categoryName;
-  categoryNameElement.style.fontWeight = 'bold';
-  categoryNameElement.style.color = '#000000';
-  categoryNameElement.style.marginRight = '10px';
-  
-  // Add "Always Active" badge if needed
-  if (isAlwaysActive) {
-    const alwaysActiveBadge = document.createElement('span');
-    alwaysActiveBadge.textContent = 'Always Active';
-    alwaysActiveBadge.style.fontSize = '10px';
-    alwaysActiveBadge.style.padding = '2px 6px';
-    alwaysActiveBadge.style.backgroundColor = '#4CAF50';
-    alwaysActiveBadge.style.color = 'white';
-    alwaysActiveBadge.style.borderRadius = '10px';
-    alwaysActiveBadge.style.marginLeft = '8px';
-    nameContainer.appendChild(alwaysActiveBadge);
-  }
-  
-  // Toggle icon
-  const toggleIcon = document.createElement('span');
-  toggleIcon.className = 'cookie-category-toggle-icon';
-  toggleIcon.textContent = '▼'; // Down arrow
-  toggleIcon.style.color = '#666';
-  toggleIcon.style.fontSize = '12px';
-  toggleIcon.style.transition = 'transform 0.3s ease';
-  
-  nameContainer.appendChild(categoryNameElement);
-  nameContainer.appendChild(toggleIcon);
-  header.appendChild(nameContainer);
-  
-  // Toggle switch (always visible)
-  const toggleContainer = document.createElement('div');
-  toggleContainer.style.display = 'flex';
-  toggleContainer.style.alignItems = 'center';
-  
-  const toggleClone = toggleElement.cloneNode(true);
-  toggleClone.style.cursor = 'pointer';
-  
-  // Disable toggle if always active
-  if (isAlwaysActive) {
-    toggleClone.disabled = true;
-    toggleClone.checked = true;
-  }
-  
-  toggleContainer.appendChild(toggleClone);
-  header.appendChild(toggleContainer);
-  
-  // Category description (initially hidden)
-  const descriptionContainer = document.createElement('div');
-  descriptionContainer.className = 'cookie-category-description';
-  descriptionContainer.style.padding = '0 12px 12px 12px';
-  descriptionContainer.style.backgroundColor = '#ffffff';
-  descriptionContainer.style.color = '#000000';
-  descriptionContainer.style.display = 'none'; // Initially hidden
-  descriptionContainer.innerHTML = description || 'No description available.';
-  
-  // Sub-choices container (initially hidden)
-  const subChoicesContainer = document.createElement('div');
-  subChoicesContainer.className = 'cookie-sub-choices';
-  subChoicesContainer.style.padding = '0 12px 12px 24px'; // Indent sub-choices
-  subChoicesContainer.style.backgroundColor = '#ffffff';
-  subChoicesContainer.style.display = 'none'; // Initially hidden
-  
-  // Add sub-choices if any
-  if (subChoices.length > 0) {
-    subChoices.forEach(subChoice => {
-      const subChoiceItem = document.createElement('div');
-      subChoiceItem.style.marginBottom = '10px';
-      subChoiceItem.style.padding = '8px';
-      subChoiceItem.style.backgroundColor = '#f0f0f0';
-      subChoiceItem.style.borderRadius = '4px';
-      
-      const subChoiceHeader = document.createElement('div');
-      subChoiceHeader.style.display = 'flex';
-      subChoiceHeader.style.justifyContent = 'space-between';
-      subChoiceHeader.style.alignItems = 'center';
-      subChoiceHeader.style.marginBottom = '5px';
-      
-      const subChoiceName = document.createElement('div');
-      subChoiceName.style.fontWeight = 'bold';
-      subChoiceName.style.color = '#000000';
-      subChoiceName.textContent = subChoice.name;
-      
-      const subChoiceToggle = subChoice.toggle.cloneNode(true);
-      subChoiceToggle.style.cursor = 'pointer';
-      
-      // Disable if always active
-      if (subChoice.isAlwaysActive) {
-        subChoiceToggle.disabled = true;
-        subChoiceToggle.checked = true;
-      }
-      
-      subChoiceHeader.appendChild(subChoiceName);
-      subChoiceHeader.appendChild(subChoiceToggle);
-      
-      const subChoiceDesc = document.createElement('div');
-      subChoiceDesc.style.color = '#000000';
-      subChoiceDesc.style.fontSize = '12px';
-      subChoiceDesc.innerHTML = subChoice.description || '';
-      
-      subChoiceItem.appendChild(subChoiceHeader);
-      subChoiceItem.appendChild(subChoiceDesc);
-      subChoicesContainer.appendChild(subChoiceItem);
-    });
-  }
-  
-  // Add click event to toggle description and sub-choices visibility
-  header.addEventListener('click', (e) => {
-    // Prevent toggle switch from triggering header click
-    if (e.target !== toggleClone) {
-      if (descriptionContainer.style.display === 'none') {
-        descriptionContainer.style.display = 'block';
-        subChoicesContainer.style.display = 'block';
-        toggleIcon.textContent = '▲'; // Up arrow
-        toggleIcon.style.transform = 'rotate(180deg)';
-      } else {
-        descriptionContainer.style.display = 'none';
-        subChoicesContainer.style.display = 'none';
-        toggleIcon.textContent = '▼'; // Down arrow
-        toggleIcon.style.transform = 'rotate(0deg)';
-      }
-    }
-  });
-  
-  // Prevent toggle switch from bubbling up to header
-  toggleClone.addEventListener('click', (e) => {
-    e.stopPropagation();
-  });
-  
-  categoryItem.appendChild(header);
-  categoryItem.appendChild(descriptionContainer);
-  categoryItem.appendChild(subChoicesContainer);
-  
-  return categoryItem;
-}
-
 // Extract customization page content
-async function extractCustomizationContent(banner) {
+export async function extractCustomizationContent(banner) {
   log("[Cookie Simplifier] Extracting customization page content...");
   
   try {
@@ -1235,26 +1095,174 @@ async function extractCustomizationContent(banner) {
     return createFallbackCustomizationContent();
   }
 }
+// ============ creators.js ============
+import { log, createCheckbox, createDisabledCheckbox } from './utils.js';
+import { OVERLAY_SELECTORS } from './constants.js';
 
-// Helper function to create a checkbox
-function createCheckbox(checked) {
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.checked = checked;
-  return checkbox;
-}
-
-// Helper function to create a disabled checkbox
-function createDisabledCheckbox(checked) {
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.checked = checked;
-  checkbox.disabled = true;
-  return checkbox;
+// Create an accordion category item with sub-choices
+export function createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = []) {
+  const categoryItem = document.createElement('div');
+  categoryItem.className = 'cookie-category-item';
+  categoryItem.style.backgroundColor = '#f9f9f9';
+  categoryItem.style.border = '1px solid #ddd';
+  categoryItem.style.borderRadius = '4px';
+  categoryItem.style.marginBottom = '10px';
+  categoryItem.style.overflow = 'hidden';
+  
+  // Category header (always visible)
+  const header = document.createElement('div');
+  header.className = 'cookie-category-header';
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.padding = '12px';
+  header.style.cursor = 'pointer';
+  header.style.backgroundColor = '#f9f9f9';
+  
+  const nameContainer = document.createElement('div');
+  nameContainer.style.display = 'flex';
+  nameContainer.style.alignItems = 'center';
+  
+  const categoryNameElement = document.createElement('span');
+  categoryNameElement.className = 'cookie-category-name';
+  categoryNameElement.textContent = categoryName;
+  categoryNameElement.style.fontWeight = 'bold';
+  categoryNameElement.style.color = '#000000';
+  categoryNameElement.style.marginRight = '10px';
+  
+  // Add "Always Active" badge if needed
+  if (isAlwaysActive) {
+    const alwaysActiveBadge = document.createElement('span');
+    alwaysActiveBadge.textContent = 'Always Active';
+    alwaysActiveBadge.style.fontSize = '10px';
+    alwaysActiveBadge.style.padding = '2px 6px';
+    alwaysActiveBadge.style.backgroundColor = '#4CAF50';
+    alwaysActiveBadge.style.color = 'white';
+    alwaysActiveBadge.style.borderRadius = '10px';
+    alwaysActiveBadge.style.marginLeft = '8px';
+    nameContainer.appendChild(alwaysActiveBadge);
+  }
+  
+  // Toggle icon
+  const toggleIcon = document.createElement('span');
+  toggleIcon.className = 'cookie-category-toggle-icon';
+  toggleIcon.textContent = '▼'; // Down arrow
+  toggleIcon.style.color = '#666';
+  toggleIcon.style.fontSize = '12px';
+  toggleIcon.style.transition = 'transform 0.3s ease';
+  
+  nameContainer.appendChild(categoryNameElement);
+  nameContainer.appendChild(toggleIcon);
+  header.appendChild(nameContainer);
+  
+  // Toggle switch (always visible)
+  const toggleContainer = document.createElement('div');
+  toggleContainer.style.display = 'flex';
+  toggleContainer.style.alignItems = 'center';
+  
+  const toggleClone = toggleElement.cloneNode(true);
+  toggleClone.style.cursor = 'pointer';
+  
+  // Disable toggle if always active
+  if (isAlwaysActive) {
+    toggleClone.disabled = true;
+    toggleClone.checked = true;
+  }
+  
+  toggleContainer.appendChild(toggleClone);
+  header.appendChild(toggleContainer);
+  
+  // Category description (initially hidden)
+  const descriptionContainer = document.createElement('div');
+  descriptionContainer.className = 'cookie-category-description';
+  descriptionContainer.style.padding = '0 12px 12px 12px';
+  descriptionContainer.style.backgroundColor = '#ffffff';
+  descriptionContainer.style.color = '#000000';
+  descriptionContainer.style.display = 'none'; // Initially hidden
+  descriptionContainer.innerHTML = description || 'No description available.';
+  
+  // Sub-choices container (initially hidden)
+  const subChoicesContainer = document.createElement('div');
+  subChoicesContainer.className = 'cookie-sub-choices';
+  subChoicesContainer.style.padding = '0 12px 12px 24px'; // Indent sub-choices
+  subChoicesContainer.style.backgroundColor = '#ffffff';
+  subChoicesContainer.style.display = 'none'; // Initially hidden
+  
+  // Add sub-choices if any
+  if (subChoices.length > 0) {
+    subChoices.forEach(subChoice => {
+      const subChoiceItem = document.createElement('div');
+      subChoiceItem.style.marginBottom = '10px';
+      subChoiceItem.style.padding = '8px';
+      subChoiceItem.style.backgroundColor = '#f0f0f0';
+      subChoiceItem.style.borderRadius = '4px';
+      
+      const subChoiceHeader = document.createElement('div');
+      subChoiceHeader.style.display = 'flex';
+      subChoiceHeader.style.justifyContent = 'space-between';
+      subChoiceHeader.style.alignItems = 'center';
+      subChoiceHeader.style.marginBottom = '5px';
+      
+      const subChoiceName = document.createElement('div');
+      subChoiceName.style.fontWeight = 'bold';
+      subChoiceName.style.color = '#000000';
+      subChoiceName.textContent = subChoice.name;
+      
+      const subChoiceToggle = subChoice.toggle.cloneNode(true);
+      subChoiceToggle.style.cursor = 'pointer';
+      
+      // Disable if always active
+      if (subChoice.isAlwaysActive) {
+        subChoiceToggle.disabled = true;
+        subChoiceToggle.checked = true;
+      }
+      
+      subChoiceHeader.appendChild(subChoiceName);
+      subChoiceHeader.appendChild(subChoiceToggle);
+      
+      const subChoiceDesc = document.createElement('div');
+      subChoiceDesc.style.color = '#000000';
+      subChoiceDesc.style.fontSize = '12px';
+      subChoiceDesc.innerHTML = subChoice.description || '';
+      
+      subChoiceItem.appendChild(subChoiceHeader);
+      subChoiceItem.appendChild(subChoiceDesc);
+      subChoicesContainer.appendChild(subChoiceItem);
+    });
+  }
+  
+  // Add click event to toggle description and sub-choices visibility
+  header.addEventListener('click', (e) => {
+    // Prevent toggle switch from triggering header click
+    if (e.target !== toggleClone) {
+      if (descriptionContainer.style.display === 'none') {
+        descriptionContainer.style.display = 'block';
+        subChoicesContainer.style.display = 'block';
+        toggleIcon.textContent = '▲'; // Up arrow
+        toggleIcon.style.transform = 'rotate(180deg)';
+      } else {
+        descriptionContainer.style.display = 'none';
+        subChoicesContainer.style.display = 'none';
+        toggleIcon.textContent = '▼'; // Down arrow
+        toggleIcon.style.transform = 'rotate(0deg)';
+      }
+    }
+  });
+  
+  // Prevent toggle switch from bubbling up to header
+  toggleClone.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+  
+  categoryItem.appendChild(header);
+  categoryItem.appendChild(descriptionContainer);
+  categoryItem.appendChild(subChoicesContainer);
+  
+  return categoryItem;
 }
 
 // Create fallback customization content
-function createFallbackCustomizationContent() {
+export function createFallbackCustomizationContent() {
   const fallback = document.createElement('div');
   fallback.className = 'customization-content black-text';
   fallback.style.color = '#000000';
@@ -1357,7 +1365,7 @@ function createFallbackCustomizationContent() {
 }
 
 // Create simplified banner with prefetched customization content
-function createSimplifiedBanner(banner, buttons, bannerContent, customizationContent) {
+export function createSimplifiedBanner(banner, buttons, bannerContent, customizationContent) {
   log("[Cookie Simplifier] Creating simplified banner...");
   
   try {
@@ -1824,9 +1832,35 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     return null;
   }
 }
+// ============ handlers.js ============
+import { 
+  log, 
+  extensionEnabled, 
+  isProcessing, 
+  observer, 
+  originalBanners, 
+  lastProcessed,
+  prefetchedCustomizationContent,
+  getSettings 
+} from './utils.js';
+import { 
+  findBanner, 
+  extractBannerContent, 
+  extractButtons, 
+  extractCustomizationContent 
+} from './extractors.js';
+import { 
+  createSimplifiedBanner, 
+  createFallbackCustomizationContent 
+} from './creators.js';
+import { 
+  ONETRUST_SELECTORS, 
+  GENERAL_BANNER_SELECTORS,
+  OVERLAY_SELECTORS 
+} from './constants.js';
 
 // Hide the original banner instead of removing it
-function hideBanner(banner) {
+export function hideBanner(banner) {
   if (!banner) {
     log("[Cookie Simplifier] No banner to hide");
     return;
@@ -1878,7 +1912,7 @@ function hideBanner(banner) {
 }
 
 // Restore a hidden banner
-function restoreBanner(bannerInfo) {
+export function restoreBanner(bannerInfo) {
   try {
     const banner = bannerInfo.element;
     if (!banner) {
@@ -1896,7 +1930,7 @@ function restoreBanner(bannerInfo) {
 }
 
 // Main function to handle cookie banners
-async function handleCookieBanners() {
+export async function handleCookieBanners() {
   if (isProcessing) {
     log("[Cookie Simplifier] Already processing, skipping");
     return;
@@ -1964,7 +1998,7 @@ async function handleCookieBanners() {
 }
 
 // Set up MutationObserver to detect dynamically added banners
-function setupObserver() {
+export function setupObserver() {
   if (!extensionEnabled) {
     log("[Cookie Simplifier] Extension is disabled, skipping observer setup");
     return;
@@ -2056,7 +2090,7 @@ function setupObserver() {
 }
 
 // Function to remove any existing simplified banners
-function removeExistingBanners() {
+export function removeExistingBanners() {
   const existingBanner = document.getElementById('simplified-cookie-banner');
   if (existingBanner) {
     existingBanner.remove();
@@ -2065,7 +2099,7 @@ function removeExistingBanners() {
 }
 
 // Function to restore original banners
-function restoreOriginalBanners() {
+export function restoreOriginalBanners() {
   log("[Cookie Simplifier] Restoring original banners");
   
   originalBanners.forEach((bannerInfo, banner) => {
@@ -2074,28 +2108,42 @@ function restoreOriginalBanners() {
   
   originalBanners.clear();
 }
+// ============ main.js ============
+import { 
+  getSettings, 
+  extensionEnabled, 
+  debugMode, 
+  observer,
+  isProcessing
+} from './utils.js';
+import { 
+  handleCookieBanners, 
+  setupObserver, 
+  removeExistingBanners, 
+  restoreOriginalBanners 
+} from './handlers.js';
 
 // Initialize
 function init() {
-  log("[Cookie Simplifier] Initializing extension");
+  console.log("[Cookie Simplifier] Content script loaded");
   
   getSettings((settings) => {
     if (!settings.enabled) {
-      log("[Cookie Simplifier] Extension is disabled, skipping initialization");
+      console.log("[Cookie Simplifier] Extension is disabled, skipping initialization");
       return;
     }
     
     if (document.readyState === 'complete') {
-      log("[Cookie Simplifier] Document already loaded");
+      console.log("[Cookie Simplifier] Document already loaded");
       // Add a delay to ensure banners are loaded
       setTimeout(() => {
         handleCookieBanners();
         setupObserver();
       }, 1000);
     } else {
-      log("[Cookie Simplifier] Waiting for document to load");
+      console.log("[Cookie Simplifier] Waiting for document to load");
       window.addEventListener('load', () => {
-        log("[Cookie Simplifier] Document loaded");
+        console.log("[Cookie Simplifier] Document loaded");
         // Add a delay to ensure banners are loaded
         setTimeout(() => {
           handleCookieBanners();
@@ -2109,18 +2157,18 @@ function init() {
 // Listen for settings changes
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "settingsChanged") {
-    log("[Cookie Simplifier] Settings changed, updating extension state");
+    console.log("[Cookie Simplifier] Settings changed, updating extension state");
     
     extensionEnabled = message.settings.enabled;
     debugMode = message.settings.debugMode;
-    autoOpenCustomization = message.settings.autoOpenCustomization;
+    const autoOpenCustomization = message.settings.autoOpenCustomization;
     
     if (extensionEnabled) {
-      log("[Cookie Simplifier] Extension enabled, checking for banners");
+      console.log("[Cookie Simplifier] Extension enabled, checking for banners");
       handleCookieBanners();
       setupObserver();
     } else {
-      log("[Cookie Simplifier] Extension disabled, removing simplified banner and restoring original");
+      console.log("[Cookie Simplifier] Extension disabled, removing simplified banner and restoring original");
       removeExistingBanners();
       restoreOriginalBanners();
       
@@ -2136,4 +2184,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Indicates async response
 });
 
+// Start the extension
 init();
