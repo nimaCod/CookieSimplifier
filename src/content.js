@@ -8,7 +8,7 @@ let originalBanners = new Map(); // Track original banners we've hidden
 let lastProcessed = 0; // For MutationObserver throttling
 let customizationView = null; // Track if we're showing customization view
 let prefetchedCustomizationContent = null; // Store prefetched customization content
-
+let originalCustomizationPage = null; // Reference to original customization page
 // OneTrust-specific selectors
 const ONETRUST_SELECTORS = [
   '#onetrust-banner-sdk', // Main OneTrust banner
@@ -18,7 +18,6 @@ const ONETRUST_SELECTORS = [
   '.onetrust-banner-sdk', // Alternative class name
   '#ot-sdk-container',
 ];
-
 // General cookie banner selectors
 const GENERAL_BANNER_SELECTORS = [
   '[id*="cookie"]',
@@ -43,7 +42,6 @@ const GENERAL_BANNER_SELECTORS = [
   '.cmp-container',
   '[data-cmp-host]'
 ];
-
 // Elements to exclude (common false positives)
 const EXCLUDE_SELECTORS = [
   '[aria-modal="true"][role="dialog"]:not([aria-label*="cookie"])',
@@ -60,7 +58,6 @@ const EXCLUDE_SELECTORS = [
   '[class*="signin"]',
   '[class*="login"]'
 ];
-
 // Overlay selectors for dark filters and backdrops
 const OVERLAY_SELECTORS = [
   '.onetrust-pc-dark-filter',  // OneTrust dark overlay
@@ -68,10 +65,8 @@ const OVERLAY_SELECTORS = [
   '.cookie-modal-backdrop',   // Generic cookie modal backdrop
   '[class*="modal-backdrop"]' // Any modal backdrop
 ];
-
 // Combined selectors
 const BANNER_SELECTORS = [...ONETRUST_SELECTORS, ...GENERAL_BANNER_SELECTORS];
-
 // Content selectors for extraction
 const CONTENT_SELECTORS = [
   '#onetrust-policy-text', // OneTrust
@@ -89,7 +84,6 @@ const CONTENT_SELECTORS = [
   '.banner-content',
   '.consent-content'
 ];
-
 // Customization page selectors
 const CUSTOMIZATION_SELECTORS = [
   '#onetrust-pc-sdk',           // OneTrust preference center
@@ -100,13 +94,11 @@ const CUSTOMIZATION_SELECTORS = [
   '[id*="preference-center"]',  // Preference center by ID
   '[class*="preference-center"]' // Preference center by class
 ];
-
 const buttonKeywords = {
   accept: ['accept', 'agree', 'allow', 'ok', 'confirm', 'got it', 'understand'],
   reject: ['reject', 'decline', 'deny', 'disagree', 'no thanks', 'opt out'],
   customize: ['customize', 'settings', 'preferences', 'manage', 'options']
 };
-
 // Function to get settings
 function getSettings(callback) {
   chrome.runtime.sendMessage({ action: "getSettings" }, (settings) => {
@@ -121,14 +113,12 @@ function getSettings(callback) {
     callback(settings);
   });
 }
-
 // Logging function that respects debug mode
 function log(message) {
   if (debugMode) {
     console.log(message);
   }
 }
-
 // Function to check if element is visible
 function isVisible(element) {
   if (!element) {
@@ -151,7 +141,6 @@ function isVisible(element) {
     return false;
   }
 }
-
 // Function to check if element should be excluded
 function shouldExclude(element) {
   for (const selector of EXCLUDE_SELECTORS) {
@@ -173,6 +162,37 @@ function shouldExclude(element) {
   return false;
 }
 
+function isElementVisibleToUser(element) {
+  if (!element) return false;
+  
+  // Check if element is in the viewport
+  const rect = element.getBoundingClientRect();
+  const isInViewport = (
+    rect.top >= 0 &&
+    rect.left >= 0 &&
+    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+  );
+  
+  // Check if element has actual size
+  const hasSize = rect.width > 0 && rect.height > 0;
+  
+  // Check if element or its parents are hidden
+  const style = window.getComputedStyle(element);
+  const isHidden = style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
+  
+  // Check if element is hidden by clipping
+  const isClipped = (
+    rect.right <= 0 || 
+    rect.bottom <= 0 || 
+    rect.left >= window.innerWidth || 
+    rect.top >= window.innerHeight
+  );
+  
+  return isInViewport && hasSize && !isHidden && !isClipped;
+}
+
+
 // Find cookie banner
 function findBanner() {
   log("[Cookie Simplifier] Searching for cookie banner...");
@@ -187,7 +207,8 @@ function findBanner() {
         continue;
       }
       
-      if (isVisible(element) && !shouldExclude(element)) {
+      // Use the new visibility check
+      if (isElementVisibleToUser(element) && !shouldExclude(element)) {
         log(`[Cookie Simplifier] Found visible banner with selector: ${selector}, ID: ${element.id || 'none'}, Class: ${element.className}`);
         return element;
       }
@@ -201,7 +222,8 @@ function findBanner() {
   for (const element of allElements) {
     if (originalBanners.has(element) || shouldExclude(element)) continue;
     
-    if (isVisible(element)) {
+    // Use the new visibility check
+    if (isElementVisibleToUser(element)) {
       const text = element.textContent.toLowerCase();
       if (text.includes('cookie') || text.includes('consent') || text.includes('gdpr') || text.includes('privacy')) {
         // Check if it has any of our banner selectors
@@ -323,7 +345,6 @@ function extractOneTrustContent(banner) {
     return createFallbackContent();
   }
 }
-
 // Extract HTML content from banner
 function extractBannerContent(banner) {
   log("[Cookie Simplifier] Extracting banner HTML content...");
@@ -410,7 +431,6 @@ function extractBannerContent(banner) {
     return createFallbackContent();
   }
 }
-
 // Create fallback content if extraction fails
 function createFallbackContent() {
   const fallback = document.createElement('div');
@@ -422,7 +442,6 @@ function createFallbackContent() {
   `;
   return fallback;
 }
-
 // Extract buttons from OneTrust banner
 function extractOneTrustButtons(banner) {
   log("[Cookie Simplifier] Extracting OneTrust buttons...");
@@ -469,7 +488,6 @@ function extractOneTrustButtons(banner) {
     return [];
   }
 }
-
 // Extract buttons from banner
 function extractButtons(banner) {
   log("[Cookie Simplifier] Extracting buttons from banner...");
@@ -531,9 +549,6 @@ function extractButtons(banner) {
     }];
   }
 }
-
-
-// Create an accordion category item with sub-choices
 // Create an accordion category item with sub-choices
 function createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = []) {
   const categoryItem = document.createElement('div');
@@ -695,7 +710,6 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
   
   return categoryItem;
 }
-
 // Extract customization page content
 async function extractCustomizationContent(banner) {
   log("[Cookie Simplifier] Extracting customization page content...");
@@ -706,7 +720,7 @@ async function extractCustomizationContent(banner) {
     
     // Try to find OneTrust preference center
     const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
-    if (oneTrustPC && isVisible(oneTrustPC)) {
+    if (oneTrustPC && isElementVisibleToUser(oneTrustPC)) {
       customizationPage = oneTrustPC;
       log("[Cookie Simplifier] Found OneTrust preference center already visible");
     }
@@ -715,7 +729,7 @@ async function extractCustomizationContent(banner) {
     if (!customizationPage) {
       for (const selector of CUSTOMIZATION_SELECTORS) {
         const element = document.querySelector(selector);
-        if (element && isVisible(element)) {
+        if (element && isElementVisibleToUser(element)) {
           customizationPage = element;
           log(`[Cookie Simplifier] Found customization page with selector: ${selector}`);
           break;
@@ -757,7 +771,7 @@ async function extractCustomizationContent(banner) {
             
             // Check for OneTrust preference center
             const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
-            if (oneTrustPC && isVisible(oneTrustPC)) {
+            if (oneTrustPC && isElementVisibleToUser(oneTrustPC)) {
               foundPage = oneTrustPC;
             }
             
@@ -765,7 +779,7 @@ async function extractCustomizationContent(banner) {
             if (!foundPage) {
               for (const selector of CUSTOMIZATION_SELECTORS) {
                 const element = document.querySelector(selector);
-                if (element && isVisible(element)) {
+                if (element && isElementVisibleToUser(element)) {
                   foundPage = element;
                   break;
                 }
@@ -777,6 +791,9 @@ async function extractCustomizationContent(banner) {
               pageFound = true;
               log("[Cookie Simplifier] Customization page appeared after clicking button");
               
+              // Store reference to original customization page
+              originalCustomizationPage = foundPage;
+              
               // Restore original banner position
               banner.style.position = originalBannerPosition;
               banner.style.left = '';
@@ -785,7 +802,7 @@ async function extractCustomizationContent(banner) {
               OVERLAY_SELECTORS.forEach(selector => {
                 const overlays = document.querySelectorAll(selector);
                 overlays.forEach(overlay => {
-                  if (isVisible(overlay)) {
+                  if (isElementVisibleToUser(overlay)) {
                     overlay.style.display = 'none';
                     log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
                   }
@@ -872,8 +889,39 @@ async function extractCustomizationContent(banner) {
                       toggle.checked = true; // Default to checked
                     }
                     
+                    // Check for subcategories
+                    const subChoices = [];
+                    const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+                    
+                    if (subCategoryElements.length > 0) {
+                      subCategoryElements.forEach(subCategory => {
+                        const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]')?.textContent.trim() || 'Subcategory';
+                        const subDesc = subCategory.querySelector('p, .description, [class*="desc"]')?.innerHTML.trim() || '';
+                        
+                        let subToggle = subCategory.querySelector('input[type="checkbox"], input[type="radio"]');
+                        if (!subToggle) {
+                          subToggle = document.createElement('input');
+                          subToggle.type = 'checkbox';
+                          subToggle.checked = toggle.checked; // Inherit from parent
+                        }
+                        
+                        subChoices.push({
+                          name: subName,
+                          description: subDesc,
+                          toggle: subToggle,
+                          isAlwaysActive: false
+                        });
+                      });
+                    }
+                    
                     // Create accordion category item
-                    const accordionCategory = createAccordionCategory(categoryName, description, toggle);
+                    const accordionCategory = createAccordionCategory(
+                      categoryName, 
+                      description, 
+                      toggle, 
+                      toggle.disabled || toggle.hasAttribute('data-always-active'),
+                      subChoices
+                    );
                     categoriesContainer.appendChild(accordionCategory);
                   });
                   
@@ -1004,7 +1052,7 @@ async function extractCustomizationContent(banner) {
               OVERLAY_SELECTORS.forEach(selector => {
                 const overlays = document.querySelectorAll(selector);
                 overlays.forEach(overlay => {
-                  if (isVisible(overlay)) {
+                  if (isElementVisibleToUser(overlay)) {
                     overlay.style.display = 'none';
                     log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
                   }
@@ -1020,11 +1068,14 @@ async function extractCustomizationContent(banner) {
     }
     
     if (customizationPage) {
+      // Store reference to original customization page
+      originalCustomizationPage = customizationPage;
+      
       // Hide any overlays that might be causing the black screen
       OVERLAY_SELECTORS.forEach(selector => {
         const overlays = document.querySelectorAll(selector);
         overlays.forEach(overlay => {
-          if (isVisible(overlay)) {
+          if (isElementVisibleToUser(overlay)) {
             overlay.style.display = 'none';
             log(`[Cookie Simplifier] Hidden overlay: ${selector}`);
           }
@@ -1111,8 +1162,39 @@ async function extractCustomizationContent(banner) {
               toggle.checked = true; // Default to checked
             }
             
+            // Check for subcategories
+            const subChoices = [];
+            const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+            
+            if (subCategoryElements.length > 0) {
+              subCategoryElements.forEach(subCategory => {
+                const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]')?.textContent.trim() || 'Subcategory';
+                const subDesc = subCategory.querySelector('p, .description, [class*="desc"]')?.innerHTML.trim() || '';
+                
+                let subToggle = subCategory.querySelector('input[type="checkbox"], input[type="radio"]');
+                if (!subToggle) {
+                  subToggle = document.createElement('input');
+                  subToggle.type = 'checkbox';
+                  subToggle.checked = toggle.checked; // Inherit from parent
+                }
+                
+                subChoices.push({
+                  name: subName,
+                  description: subDesc,
+                  toggle: subToggle,
+                  isAlwaysActive: false
+                });
+              });
+            }
+            
             // Create accordion category item
-            const accordionCategory = createAccordionCategory(categoryName, description, toggle);
+            const accordionCategory = createAccordionCategory(
+              categoryName, 
+              description, 
+              toggle, 
+              toggle.disabled || toggle.hasAttribute('data-always-active'),
+              subChoices
+            );
             categoriesContainer.appendChild(accordionCategory);
           });
           
@@ -1243,7 +1325,6 @@ function createCheckbox(checked) {
   checkbox.checked = checked;
   return checkbox;
 }
-
 // Helper function to create a disabled checkbox
 function createDisabledCheckbox(checked) {
   const checkbox = document.createElement('input');
@@ -1252,7 +1333,6 @@ function createDisabledCheckbox(checked) {
   checkbox.disabled = true;
   return checkbox;
 }
-
 // Create fallback customization content
 function createFallbackCustomizationContent() {
   const fallback = document.createElement('div');
@@ -1355,7 +1435,6 @@ function createFallbackCustomizationContent() {
   
   return fallback;
 }
-
 // Create simplified banner with prefetched customization content
 function createSimplifiedBanner(banner, buttons, bannerContent, customizationContent) {
   log("[Cookie Simplifier] Creating simplified banner...");
@@ -1463,6 +1542,12 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
         });
       });
       
+      // Restore original customization page if it exists
+      if (originalCustomizationPage) {
+        originalCustomizationPage.style.display = '';
+        log("[Cookie Simplifier] Restored original customization page");
+      }
+      
       newBanner.remove();
     });
     closeBtn.addEventListener('keydown', (e) => {
@@ -1479,6 +1564,12 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
             }
           });
         });
+        
+        // Restore original customization page if it exists
+        if (originalCustomizationPage) {
+          originalCustomizationPage.style.display = '';
+          log("[Cookie Simplifier] Restored original customization page");
+        }
         
         newBanner.remove();
       }
@@ -1573,9 +1664,24 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
             originalAcceptBtn.element.click();
           }
           
+          // Check if cookies were set
           setTimeout(() => {
             const cookieAfter = document.cookie;
             log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+            
+            // If no cookies were set, try alternative approach
+            if (cookieBefore === cookieAfter) {
+              log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+              
+              // Try to find and click the accept button in the original customization page
+              if (originalCustomizationPage) {
+                const acceptAllBtn = originalCustomizationPage.querySelector('.accept-all, .accept-btn, #accept-all, [aria-label*="accept all"]');
+                if (acceptAllBtn) {
+                  acceptAllBtn.click();
+                  log("[Cookie Simplifier] Clicked accept all button in original customization page");
+                }
+              }
+            }
           }, 500);
         } catch (error) {
           log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
@@ -1609,9 +1715,24 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
               originalAcceptBtn.element.click();
             }
             
+            // Check if cookies were set
             setTimeout(() => {
               const cookieAfter = document.cookie;
               log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+              
+              // If no cookies were set, try alternative approach
+              if (cookieBefore === cookieAfter) {
+                log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+                
+                // Try to find and click the accept button in the original customization page
+                if (originalCustomizationPage) {
+                  const acceptAllBtn = originalCustomizationPage.querySelector('.accept-all, .accept-btn, #accept-all, [aria-label*="accept all"]');
+                  if (acceptAllBtn) {
+                    acceptAllBtn.click();
+                    log("[Cookie Simplifier] Clicked accept all button in original customization page");
+                  }
+                }
+              }
             }, 500);
           } catch (error) {
             log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
@@ -1661,9 +1782,24 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
             originalRejectBtn.element.click();
           }
           
+          // Check if cookies were set
           setTimeout(() => {
             const cookieAfter = document.cookie;
             log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+            
+            // If no cookies were set, try alternative approach
+            if (cookieBefore === cookieAfter) {
+              log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+              
+              // Try to find and click the reject button in the original customization page
+              if (originalCustomizationPage) {
+                const rejectAllBtn = originalCustomizationPage.querySelector('.reject-all, .reject-btn, #reject-all, [aria-label*="reject all"]');
+                if (rejectAllBtn) {
+                  rejectAllBtn.click();
+                  log("[Cookie Simplifier] Clicked reject all button in original customization page");
+                }
+              }
+            }
           }, 500);
         } catch (error) {
           log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
@@ -1697,9 +1833,24 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
               originalRejectBtn.element.click();
             }
             
+            // Check if cookies were set
             setTimeout(() => {
               const cookieAfter = document.cookie;
               log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+              
+              // If no cookies were set, try alternative approach
+              if (cookieBefore === cookieAfter) {
+                log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+                
+                // Try to find and click the reject button in the original customization page
+                if (originalCustomizationPage) {
+                  const rejectAllBtn = originalCustomizationPage.querySelector('.reject-all, .reject-btn, #reject-all, [aria-label*="reject all"]');
+                  if (rejectAllBtn) {
+                    rejectAllBtn.click();
+                    log("[Cookie Simplifier] Clicked reject all button in original customization page");
+                  }
+                }
+              }
             }, 500);
           } catch (error) {
             log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
@@ -1730,17 +1881,64 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     acceptSelectionBtn.addEventListener('click', () => {
       log("[Cookie Simplifier] Accept Selection button clicked");
       
-      // Try to find and click the save button in the original customization page
-      const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
-      if (hiddenCustomizationPage) {
-        const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
-        if (saveButton) {
-          saveButton.click();
-        } else {
-          log("[Cookie Simplifier] Could not find save button in hidden customization page");
+      // First, synchronize the toggle states from our simplified banner to the original customization page
+      if (originalCustomizationPage) {
+        try {
+          // Find all category toggles in our simplified banner
+          const categoryToggles = newBanner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+          
+          categoryToggles.forEach(toggle => {
+            const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+            
+            // Find the corresponding category in the original customization page
+            const originalCategories = originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+            
+            originalCategories.forEach(originalCategory => {
+              const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+              if (originalTitle && originalTitle.textContent.trim() === categoryName) {
+                const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
+                if (originalToggle) {
+                  originalToggle.checked = toggle.checked;
+                  log(`[Cookie Simplifier] Synchronized toggle state for category: ${categoryName}`);
+                }
+              }
+            });
+          });
+          
+          // Find all subcategory toggles in our simplified banner
+          const subCategoryToggles = newBanner.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+          
+          subCategoryToggles.forEach(toggle => {
+            const subCategoryName = toggle.closest('.cookie-sub-choices > div').querySelector('div > div:first-child').textContent;
+            
+            // Find the corresponding subcategory in the original customization page
+            const originalSubCategories = originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+            
+            originalSubCategories.forEach(originalSubCategory => {
+              const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
+              if (originalTitle && originalTitle.textContent.trim() === subCategoryName) {
+                const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
+                if (originalToggle) {
+                  originalToggle.checked = toggle.checked;
+                  log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${subCategoryName}`);
+                }
+              }
+            });
+          });
+          
+          // Now find and click the save button in the original customization page
+          const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+          if (saveButton) {
+            saveButton.click();
+            log("[Cookie Simplifier] Clicked save button in original customization page");
+          } else {
+            log("[Cookie Simplifier] Could not find save button in original customization page");
+          }
+        } catch (error) {
+          log(`[Cookie Simplifier] Error synchronizing toggle states: ${error.message}`);
         }
       } else {
-        log("[Cookie Simplifier] No hidden customization page found");
+        log("[Cookie Simplifier] No original customization page found");
       }
       
       newBanner.remove();
@@ -1751,17 +1949,64 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
       if (e.key === 'Enter' || e.key === ' ') {
         log("[Cookie Simplifier] Accept Selection button triggered via keyboard");
         
-        // Try to find and click the save button in the original customization page
-        const hiddenCustomizationPage = document.querySelector('#onetrust-pc-sdk[style*="display: none"]');
-        if (hiddenCustomizationPage) {
-          const saveButton = hiddenCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn');
-          if (saveButton) {
-            saveButton.click();
-          } else {
-            log("[Cookie Simplifier] Could not find save button in hidden customization page");
+        // First, synchronize the toggle states from our simplified banner to the original customization page
+        if (originalCustomizationPage) {
+          try {
+            // Find all category toggles in our simplified banner
+            const categoryToggles = newBanner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+            
+            categoryToggles.forEach(toggle => {
+              const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+              
+              // Find the corresponding category in the original customization page
+              const originalCategories = originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+              
+              originalCategories.forEach(originalCategory => {
+                const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+                if (originalTitle && originalTitle.textContent.trim() === categoryName) {
+                  const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
+                  if (originalToggle) {
+                    originalToggle.checked = toggle.checked;
+                    log(`[Cookie Simplifier] Synchronized toggle state for category: ${categoryName}`);
+                  }
+                }
+              });
+            });
+            
+            // Find all subcategory toggles in our simplified banner
+            const subCategoryToggles = newBanner.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+            
+            subCategoryToggles.forEach(toggle => {
+              const subCategoryName = toggle.closest('.cookie-sub-choices > div').querySelector('div > div:first-child').textContent;
+              
+              // Find the corresponding subcategory in the original customization page
+              const originalSubCategories = originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+              
+              originalSubCategories.forEach(originalSubCategory => {
+                const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
+                if (originalTitle && originalTitle.textContent.trim() === subCategoryName) {
+                  const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
+                  if (originalToggle) {
+                    originalToggle.checked = toggle.checked;
+                    log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${subCategoryName}`);
+                  }
+                }
+              });
+            });
+            
+            // Now find and click the save button in the original customization page
+            const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+            if (saveButton) {
+              saveButton.click();
+              log("[Cookie Simplifier] Clicked save button in original customization page");
+            } else {
+              log("[Cookie Simplifier] Could not find save button in original customization page");
+            }
+          } catch (error) {
+            log(`[Cookie Simplifier] Error synchronizing toggle states: ${error.message}`);
           }
         } else {
-          log("[Cookie Simplifier] No hidden customization page found");
+          log("[Cookie Simplifier] No original customization page found");
         }
         
         newBanner.remove();
@@ -1824,7 +2069,6 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     return null;
   }
 }
-
 // Hide the original banner instead of removing it
 function hideBanner(banner) {
   if (!banner) {
@@ -1876,7 +2120,6 @@ function hideBanner(banner) {
     log(`[Cookie Simplifier] Error hiding banner: ${error.message}`);
   }
 }
-
 // Restore a hidden banner
 function restoreBanner(bannerInfo) {
   try {
@@ -1894,7 +2137,6 @@ function restoreBanner(bannerInfo) {
     log(`[Cookie Simplifier] Error restoring banner: ${error.message}`);
   }
 }
-
 // Main function to handle cookie banners
 async function handleCookieBanners() {
   if (isProcessing) {
@@ -1917,6 +2159,22 @@ async function handleCookieBanners() {
       return;
     }
     
+    // Additional check to ensure the banner is actually visible to the user
+    if (!isElementVisibleToUser(banner)) {
+      log("[Cookie Simplifier] Banner is not visible to user, skipping");
+      return;
+    }
+    
+    // Check if this is a customization page that's hidden
+    const isCustomizationPage = CUSTOMIZATION_SELECTORS.some(selector => 
+      banner.matches(selector) || banner.querySelector(selector)
+    );
+    
+    if (isCustomizationPage && !isElementVisibleToUser(banner)) {
+      log("[Cookie Simplifier] Found hidden customization page, skipping");
+      return;
+    }
+    
     const bannerContent = extractBannerContent(banner);
     const buttons = extractButtons(banner);
     
@@ -1925,7 +2183,7 @@ async function handleCookieBanners() {
       return;
     }
     
-    // Prefetch customization content
+    // Prefetch customization content only if the banner is visible
     log("[Cookie Simplifier] Prefetching customization content");
     let customizationContent = null;
     try {
@@ -2012,13 +2270,14 @@ function setupObserver() {
         if (node.nodeType === Node.ELEMENT_NODE) {
           // Check if it's a OneTrust banner
           for (const selector of ONETRUST_SELECTORS) {
+            let element = null;
             if (node.matches && node.matches(selector)) {
-              log(`[Cookie Simplifier] OneTrust banner detected via observer: ${selector}`);
-              handleCookieBanners();
-              return;
+              element = node;
+            } else if (node.querySelector && node.querySelector(selector)) {
+              element = node.querySelector(selector);
             }
-            if (node.querySelector && node.querySelector(selector)) {
-              log(`[Cookie Simplifier] OneTrust banner detected via observer (contains): ${selector}`);
+            if (element && isElementVisibleToUser(element) && !shouldExclude(element)) {
+              log(`[Cookie Simplifier] OneTrust banner detected via observer: ${selector}`);
               handleCookieBanners();
               return;
             }
@@ -2026,18 +2285,16 @@ function setupObserver() {
           
           // Check if it's a general banner but not a false positive
           for (const selector of GENERAL_BANNER_SELECTORS) {
-            if (node.matches && node.matches(selector) && !shouldExclude(node)) {
+            let element = null;
+            if (node.matches && node.matches(selector)) {
+              element = node;
+            } else if (node.querySelector && node.querySelector(selector)) {
+              element = node.querySelector(selector);
+            }
+            if (element && isElementVisibleToUser(element) && !shouldExclude(element)) {
               log(`[Cookie Simplifier] General banner detected via observer: ${selector}`);
               handleCookieBanners();
               return;
-            }
-            if (node.querySelector && node.querySelector(selector)) {
-              const childBanner = node.querySelector(selector);
-              if (!shouldExclude(childBanner)) {
-                log(`[Cookie Simplifier] General banner detected via observer (contains): ${selector}`);
-                handleCookieBanners();
-                return;
-              }
             }
           }
         }
@@ -2054,7 +2311,6 @@ function setupObserver() {
   
   log("[Cookie Simplifier] MutationObserver set up");
 }
-
 // Function to remove any existing simplified banners
 function removeExistingBanners() {
   const existingBanner = document.getElementById('simplified-cookie-banner');
@@ -2063,7 +2319,6 @@ function removeExistingBanners() {
     log("[Cookie Simplifier] Removed existing simplified banner");
   }
 }
-
 // Function to restore original banners
 function restoreOriginalBanners() {
   log("[Cookie Simplifier] Restoring original banners");
@@ -2074,7 +2329,6 @@ function restoreOriginalBanners() {
   
   originalBanners.clear();
 }
-
 // Initialize
 function init() {
   log("[Cookie Simplifier] Initializing extension");
@@ -2105,7 +2359,6 @@ function init() {
     }
   });
 }
-
 // Listen for settings changes
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "settingsChanged") {
@@ -2135,5 +2388,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   
   return true; // Indicates async response
 });
-
 init();
