@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("[Cookie Simplifier] Forwarding settings change to all tabs");
     
     // Get current settings
-    chrome.storage.sync.get(['enabled', 'debugMode', 'autoOpenCustomization'], (settings) => {
+    chrome.storage.sync.get(['enabled', 'debugMode'], (settings) => {
       // Notify all tabs about the settings change
       chrome.tabs.query({}, (tabs) => {
         tabs.forEach(tab => {
