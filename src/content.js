@@ -33,7 +33,7 @@ const GENERAL_BANNER_SELECTORS = [
   '[id*="consent"]',
   '[class*="consent"]',
   '[id*="gdpr"]',
-  '[class*="gdpr"]',
+
   '#truste-consent-track',
   '.cc-window',
   '.cookie-banner',
@@ -48,7 +48,8 @@ const GENERAL_BANNER_SELECTORS = [
   '[data-consent]',
   '.js-cookie-consent',
   '.cmp-container',
-  '[data-cmp-host]'
+  '[data-cmp-host]',
+  '[class*="notice"]'
 ];
 // Elements to exclude (common false positives)
 const EXCLUDE_SELECTORS = [
@@ -129,7 +130,8 @@ const CONTENT_SELECTORS = [
   '.cmp-intro_intro', // Quantcast
   '.cookie-consent__message',
   '.banner-content',
-  '.consent-content'
+  '.consent-content',
+  '.message-component' // BBC
 ];
 // Customization page selectors
 const CUSTOMIZATION_SELECTORS = [
@@ -139,52 +141,14 @@ const CUSTOMIZATION_SELECTORS = [
   '.consent-preferences',       // Generic consent preferences
   '.privacy-preferences',       // Generic privacy preferences
   '[id*="preference-center"]',  // Preference center by ID
-  '[class*="preference-center"]', // Preference center by class
-  '.ot-sdk-container',         // OneTrust container
-  '.ot-pc-sdk',                 // OneTrust preference center alternative
-  '.ot-pc-dialog',              // OneTrust dialog
-  '.ot-pc-overlay',             // OneTrust overlay
-  '.ot-sdk-row',                // OneTrust row
-  '.ot-sdk-columns',            // OneTrust columns
-  '.ot-sdk-column',             // OneTrust column
-  '.ot-pc-content',             // OneTrust content
-  '.ot-pc-header',              // OneTrust header
-  '.ot-pc-title',               // OneTrust title
-  '.ot-pc-footer',              // OneTrust footer
-  '.ot-pc-body',                // OneTrust body
-  '.ot-pc-group',               // OneTrust group
-  '.ot-pc-list',                // OneTrust list
-  '.ot-pc-tab',                 // OneTrust tab
-  '.ot-pc-section',             // OneTrust section
-  '.ot-pc-text',                // OneTrust text
-  '.ot-pc-desc',                // OneTrust description
-  '.ot-pc-label',               // OneTrust label
-  '.ot-pc-info',                // OneTrust info
-  '.ot-pc-button',              // OneTrust button
-  '.ot-pc-link',                // OneTrust link
-  '.ot-pc-icon',                // OneTrust icon
-  '.ot-pc-image',               // OneTrust image
-  '.ot-pc-video',               // OneTrust video
-  '.ot-pc-audio',               // OneTrust audio
-  '.ot-pc-map',                 // OneTrust map
-  '.ot-pc-chart',               // OneTrust chart
-  '.ot-pc-graph',               // OneTrust graph
-  '.ot-pc-table',               // OneTrust table
-  '.ot-pc-form',                // OneTrust form
-  '.ot-pc-input',               // OneTrust input
-  '.ot-pc-select',              // OneTrust select
-  '.ot-pc-textarea',            // OneTrust textarea
-  '.ot-pc-checkbox',            // OneTrust checkbox
-  '.ot-pc-radio',               // OneTrust radio
-  '.ot-pc-category',            // OneTrust category
-  '.ot-pc-group',               // OneTrust group
-  '.ot-pc-section'              // OneTrust section
+  '[class*="preference-center"]' // Preference center by class
 ];
+
 const buttonKeywords = {
-  accept: ['accept', 'agree', 'allow', 'ok', 'confirm', 'got it', 'understand'],
-  reject: ['reject', 'decline', 'deny', 'disagree', 'no thanks', 'opt out'],
-  customize: ['customize', 'settings', 'preferences', 'manage', 'options']
-};
+  accept: ['accept', 'agree', 'allow', 'ok', 'confirm', 'got it', 'understand', 'continue', 'yes', 'submit', 'allow all', 'accept all', 'i agree', 'i accept'],
+  reject: ['reject', 'decline', 'deny', 'disagree', 'no thanks', 'opt out', 'refuse', 'no', 'reject all', 'decline all', 'deny all'],
+  customize: ['customize', 'settings', 'preferences', 'manage', 'options', 'configure', 'more info', 'learn more', 'details', 'cookie settings', 'privacy settings', 'manage preferences', 'privacy options']
+}; 
 
 // Look for common save button selectors
 const saveButtonSelectors = [
@@ -332,6 +296,7 @@ function shouldExclude(element) {
   
   return false;
 }
+
 function isElementVisibleToUser(element) {
   if (!element) return false;
   
@@ -361,53 +326,13 @@ function isElementVisibleToUser(element) {
   
   return isInViewport && hasSize && !isHidden && !isClipped;
 }
+
 // Find cookie banner
 function findBanner() {
   log("[Cookie Simplifier] Searching for cookie banner...");
-  
-  // First try OneTrust-specific selectors
-  for (const selector of ONETRUST_SELECTORS) {
-    const elements = document.querySelectorAll(selector);
-    log(`[Cookie Simplifier] Found ${elements.length} elements for OneTrust selector: ${selector}`);
-    
-    for (const element of elements) {
-      if (originalBanners.has(element)) {
-        log("[Cookie Simplifier] Skipping already processed banner: " + (element.id || element.tagName));
-        continue;
-      }
-      
-      // For OneTrust elements, try to find the top-level container
-      let bannerElement = element;
-      
-      // If this is an inner element, try to find the top-level container
-      if (!element.classList.contains('ot-sdk-container') && 
-          !element.classList.contains('onetrust-banner-sdk') &&
-          !element.id.includes('onetrust-banner-sdk') &&
-          !element.id.includes('onetrust-consent-sdk')) {
-        
-        // Try to find the top-level container by traversing up
-        let parent = element.parentElement;
-        while (parent && parent !== document.body) {
-          if (parent.classList.contains('ot-sdk-container') || 
-              parent.classList.contains('onetrust-banner-sdk') ||
-              parent.id === 'onetrust-banner-sdk' ||
-              parent.id === 'onetrust-consent-sdk') {
-            bannerElement = parent;
-            break;
-          }
-          parent = parent.parentElement;
-        }
-      }
-      
-      if (isElementVisibleToUser(bannerElement) && !shouldExclude(bannerElement)) {
-        log(`[Cookie Simplifier] Found visible OneTrust banner with selector: ${selector}, ID: ${bannerElement.id || 'none'}`);
-        return bannerElement;
-      }
-    }
-  }
-  
+
   // Then try general selectors
-  for (const selector of GENERAL_BANNER_SELECTORS) {
+  for (const selector of BANNER_SELECTORS) {
     const elements = document.querySelectorAll(selector);
     log(`[Cookie Simplifier] Found ${elements.length} elements for general selector: ${selector}`);
     
@@ -425,174 +350,71 @@ function findBanner() {
   }
   
   // Heuristic check for elements with cookie-related text or styling
-  const allElements = document.querySelectorAll('div, section, aside, dialog');
-  log(`[Cookie Simplifier] Checking ${allElements.length} elements for heuristic match`);
+  // const allElements = document.querySelectorAll('div, section, aside, dialog');
+  // log(`[Cookie Simplifier] Checking ${allElements.length} elements for heuristic match`);
   
-  for (const element of allElements) {
-    if (originalBanners.has(element) || shouldExclude(element)) continue;
+  // for (const element of allElements) {
+  //   if (originalBanners.has(element) || shouldExclude(element)) continue;
     
-    if (isElementVisibleToUser(element)) {
-      const text = element.textContent.toLowerCase();
-      if (text.includes('cookie') || text.includes('consent') || text.includes('gdpr') || text.includes('privacy')) {
-        // Check if it has any of our banner selectors
-        for (const selector of BANNER_SELECTORS) {
-          if (element.matches(selector) || element.querySelector(selector)) {
-            log(`[Cookie Simplifier] Found banner via heuristic and selector: ${selector}, ID: ${element.id || 'none'}`);
-            return element;
-          }
-        }
+  //   if (isElementVisibleToUser(element)) {
+  //     const text = element.textContent.toLowerCase();
+  //     if (text.includes('cookie') || text.includes('consent') || text.includes('gdpr') || text.includes('privacy')) {
+  //       // Check if it has any of our banner selectors
+  //       for (const selector of BANNER_SELECTORS) {
+  //         if (element.matches(selector) || element.querySelector(selector)) {
+  //           log(`[Cookie Simplifier] Found banner via heuristic and selector: ${selector}, ID: ${element.id || 'none'}`);
+  //           return element;
+  //         }
+  //       }
         
-        // Additional check for fixed position or high z-index
-        if (element.style.position === 'fixed' || parseInt(element.style.zIndex) > 1000) {
-          log(`[Cookie Simplifier] Found banner via heuristic (text and styling), ID: ${element.id || 'none'}`);
-          return element;
-        }
+  //       // Additional check for fixed position or high z-index
+  //       if (element.style.position === 'fixed' || parseInt(element.style.zIndex) > 1000) {
+  //         log(`[Cookie Simplifier] Found banner via heuristic (text and styling), ID: ${element.id || 'none'}`);
+  //         return element;
+  //       }
         
-        // Check for common cookie banner button patterns
-        const buttons = element.querySelectorAll('button');
-        for (const button of buttons) {
-          const buttonText = button.textContent.toLowerCase();
-          if (buttonText.includes('accept') || buttonText.includes('agree') || buttonText.includes('reject') || buttonText.includes('settings')) {
-            log(`[Cookie Simplifier] Found banner via heuristic (text and buttons), ID: ${element.id || 'none'}`);
-            return element;
-          }
-        }
-      }
-    }
-  }
+  //       // Check for common cookie banner button patterns
+  //       const buttons = element.querySelectorAll('button');
+  //       for (const button of buttons) {
+  //         const buttonText = button.textContent.toLowerCase();
+  //         if (buttonText.includes('accept') || buttonText.includes('agree') || buttonText.includes('reject') || buttonText.includes('settings')) {
+  //           log(`[Cookie Simplifier] Found banner via heuristic (text and buttons), ID: ${element.id || 'none'}`);
+  //           return element;
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
   
-  // Final check: look for any element that contains cookie-related text and has buttons
-  const allInteractiveElements = document.querySelectorAll('*');
-  for (const element of allInteractiveElements) {
-    if (originalBanners.has(element) || shouldExclude(element)) continue;
+  // // Final check: look for any element that contains cookie-related text and has buttons
+  // const allInteractiveElements = document.querySelectorAll('*');
+  // for (const element of allInteractiveElements) {
+  //   if (originalBanners.has(element) || shouldExclude(element)) continue;
     
-    if (isElementVisibleToUser(element)) {
-      const text = element.textContent.toLowerCase();
-      if (text.includes('cookie') || text.includes('consent') || text.includes('gdpr') || text.includes('privacy')) {
-        const buttons = element.querySelectorAll('button, [role="button"], input[type="button"]');
-        if (buttons.length > 0) {
-          log(`[Cookie Simplifier] Found banner via final heuristic check, ID: ${element.id || 'none'}`);
-          return element;
-        }
-      }
-    }
-  }
+  //   if (isElementVisibleToUser(element)) {
+  //     const text = element.textContent.toLowerCase();
+  //     if (text.includes('cookie') || text.includes('consent') || text.includes('gdpr') || text.includes('privacy')) {
+  //       const buttons = element.querySelectorAll('button, [role="button"], input[type="button"]');
+  //       if (buttons.length > 0) {
+  //         log(`[Cookie Simplifier] Found banner via final heuristic check, ID: ${element.id || 'none'}`);
+  //         return element;
+  //       }
+  //     }
+  //   }
+  // }
   
   log("[Cookie Simplifier] No cookie banner found");
   return null;
 }
-// Extract HTML content from OneTrust banner
-function extractOneTrustContent(banner) {
-  log("[Cookie Simplifier] Extracting OneTrust banner HTML content...");
-  
-  try {
-    // Create a container for the extracted content
-    const contentContainer = document.createElement('div');
-    contentContainer.className = 'extracted-banner-content black-text';
-    
-    // Get the main policy section - this contains the primary content
-    const policySection = banner.querySelector('#onetrust-policy');
-    if (policySection) {
-      const policyClone = policySection.cloneNode(true);
-      contentContainer.appendChild(policyClone);
-      log("[Cookie Simplifier] Added policy section");
-    }
-    
-    // Only add additional description if it's not already included in the policy section
-    const addlDesc = banner.querySelector('.ot-b-addl-desc');
-    if (addlDesc && !policySection?.contains(addlDesc)) {
-      const addlDescClone = addlDesc.cloneNode(true);
-      contentContainer.appendChild(addlDescClone);
-      log("[Cookie Simplifier] Added additional description");
-    }
-    
-    // Only add data processing description if it's not already included
-    const dpdContainer = banner.querySelector('.ot-dpd-container');
-    if (dpdContainer && !policySection?.contains(dpdContainer) && !addlDesc?.contains(dpdContainer)) {
-      const dpdClone = dpdContainer.cloneNode(true);
-      contentContainer.appendChild(dpdClone);
-      log("[Cookie Simplifier] Added data processing container");
-    }
-    
-    // If we couldn't find specific sections, clone the entire banner (excluding buttons)
-    if (contentContainer.children.length === 0) {
-      const bannerClone = banner.cloneNode(true);
-      
-      // Remove button sections
-      const buttonSections = bannerClone.querySelectorAll('#onetrust-button-group-parent, #onetrust-button-group, #onetrust-close-btn-container');
-      buttonSections.forEach(section => section.remove());
-      
-      // Remove individual buttons that might be outside button sections
-      const buttons = bannerClone.querySelectorAll('button');
-      buttons.forEach(button => {
-        // Only remove buttons that are not part of the content
-        if (!button.closest('.ot-dpd-content') && !button.closest('.ot-b-addl-desc')) {
-          button.remove();
-        }
-      });
-      
-      contentContainer.appendChild(bannerClone);
-      log("[Cookie Simplifier] Added cloned banner with buttons removed");
-    }
-    
-    // Process links to ensure they work properly
-    const links = contentContainer.querySelectorAll('a');
-    links.forEach(link => {
-      // Add event listener to links
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        log(`[Cookie Simplifier] Link clicked: ${link.textContent.trim()}, href: ${link.href}`);
-        // Open in new tab
-        window.open(link.href, '_blank');
-      });
-      
-      // Make links look clickable
-      link.style.color = '#2196F3';
-      link.style.textDecoration = 'underline';
-      link.style.cursor = 'pointer';
-    });
-    
-    // Process images to ensure they load properly
-    const images = contentContainer.querySelectorAll('img');
-    images.forEach(img => {
-      // Ensure images have the correct source
-      if (!img.src && img.getAttribute('data-src')) {
-        img.src = img.getAttribute('data-src');
-      }
-      
-      // Add error handling
-      img.addEventListener('error', () => {
-        log(`[Cookie Simplifier] Failed to load image: ${img.src || img.getAttribute('data-src')}`);
-      });
-    });
-    
-    // Make all text elements black
-    const textElements = contentContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, li, td, th');
-    textElements.forEach(element => {
-      element.style.color = '#000000';
-    });
-    
-    log(`[Cookie Simplifier] Extracted OneTrust content with ${contentContainer.children.length} sections`);
-    return contentContainer;
-  } catch (error) {
-    log(`[Cookie Simplifier] Error extracting OneTrust content: ${error.message}`);
-    return createFallbackContent();
-  }
-}
+
 // Extract HTML content from banner
 function extractBannerContent(banner) {
   log("[Cookie Simplifier] Extracting banner HTML content...");
   
-  // Check if it's a OneTrust banner
-  if (banner.id === 'onetrust-banner-sdk' || banner.id === 'onetrust-consent-sdk' || 
-      banner.classList.contains('onetrust-banner-sdk') || banner.querySelector('#onetrust-banner-sdk')) {
-    return extractOneTrustContent(banner);
-  }
-  
   try {
     // Create a container for the extracted content
     const contentContainer = document.createElement('div');
-    contentContainer.className = 'extracted-banner-content black-text';
+    contentContainer.className = 'extracted-content black-text';
     
     // Try to find content sections
     let foundContent = false;
@@ -614,48 +436,17 @@ function extractBannerContent(banner) {
       const bannerClone = banner.cloneNode(true);
       
       // Remove buttons and interactive elements
-      const interactiveElements = bannerClone.querySelectorAll('button, [role="button"], input, select, textarea');
-      interactiveElements.forEach(element => element.remove());
-      
+      // const interactiveElements = bannerClone.querySelectorAll('button, [role="button"], input, select, textarea');
+      // interactiveElements.forEach(element => element.remove());
       contentContainer.appendChild(bannerClone);
       log("[Cookie Simplifier] Added cloned banner with interactive elements removed");
     }
-    
-    // Process links to ensure they work properly
-    const links = contentContainer.querySelectorAll('a');
-    links.forEach(link => {
-      // Add event listener to links
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        log(`[Cookie Simplifier] Link clicked: ${link.textContent.trim()}, href: ${link.href}`);
-        // Open in new tab
-        window.open(link.href, '_blank');
-      });
-      
-      // Make links look clickable
-      link.style.color = '#2196F3';
-      link.style.textDecoration = 'underline';
-      link.style.cursor = 'pointer';
-    });
-    
-    // Process images to ensure they load properly
-    const images = contentContainer.querySelectorAll('img');
-    images.forEach(img => {
-      // Ensure images have the correct source
-      if (!img.src && img.getAttribute('data-src')) {
-        img.src = img.getAttribute('data-src');
-      }
-      
-      // Add error handling
-      img.addEventListener('error', () => {
-        log(`[Cookie Simplifier] Failed to load image: ${img.src || img.getAttribute('data-src')}`);
-      });
-    });
     
     // Make all text elements black
     const textElements = contentContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, li, td, th');
     textElements.forEach(element => {
       element.style.color = '#000000';
+      element.style.bottom = null;
     });
     
     log(`[Cookie Simplifier] Extracted banner content with ${contentContainer.children.length} sections`);
@@ -666,14 +457,107 @@ function extractBannerContent(banner) {
   }
 }
 // Create fallback content if extraction fails
-function createFallbackContent() {
+function createFallbackCustomizationContent() {
   const fallback = document.createElement('div');
-  fallback.className = 'extracted-banner-content black-text';
+  fallback.className = 'customization-content black-text rtl-text';
   fallback.style.color = '#000000';
-  fallback.innerHTML = `
-    <p style="color: #000000;">This website uses cookies to enhance your experience. By continuing to use this site, you agree to our use of cookies.</p>
-    <p style="color: #000000;">For more information, please review the website's privacy policy.</p>
-  `;
+  fallback.style.backgroundColor = '#ffffff';
+  fallback.style.padding = '15px';
+  fallback.setAttribute('dir', 'rtl');
+  
+  // Title
+  const title = document.createElement('h3');
+  title.textContent = 'تنظیمات کوکی‌ها';
+  title.style.color = '#000000';
+  title.style.marginBottom = '15px';
+  title.setAttribute('dir', 'rtl');
+  fallback.appendChild(title);
+  
+  // Necessary category (Always Active)
+  // const necessarySubChoices = [
+  //   {
+  //     name: 'Authentication',
+  //     description: 'این کوکی‌ها برای عملکرد وب‌سایت ضروری هستند و نمی‌توان آنها را غیرفعال کرد.',
+  //     toggle: createDisabledCheckbox(true),
+  //     isAlwaysActive: true
+  //   },
+  //   {
+  //     name: 'Security',
+  //     description: 'این کوکی‌ها به ما کمک می‌کنند تا وب‌سایت را در برابر فعالیت‌های مخرب محافظت کنیم.',
+  //     toggle: createDisabledCheckbox(true),
+  //     isAlwaysActive: true
+  //   }
+  // ];
+  
+  // const necessaryCategory = createAccordionCategory(
+  //   'Strictly Necessary Cookies', 
+  //   'این کوکی‌ها برای عملکرد وب‌سایت ضروری هستند و نمی‌توان آنها را در سیستم‌های ما غیرفعال کرد. آنها معمولاً فقط در پاسخ به اقداماتی که توسط شما انجام می‌شود تنظیم می‌شوند که معادل درخواست خدمات است، مانند تنظیم ترجیحات حریم خصوصی، ورود به سیستم یا پر کردن فرم‌ها.',
+  //   createDisabledCheckbox(true),
+  //   true,
+  //   necessarySubChoices
+  // );
+  
+  // // Analytics category
+  // const analyticsSubChoices = [
+  //   {
+  //     name: 'Performance Measurement',
+  //     description: 'این کوکی‌ها به ما اجازه می‌دهند بازدیدها و منابع ترافیک را بشماریم تا بتوانیم عملکرد سایت خود را اندازه‌گیری و بهبود بخشیم.',
+  //     toggle: createCheckbox(false),
+  //     isAlwaysActive: false
+  //   },
+  //   {
+  //     name: 'User Behavior Analysis',
+  //     description: 'این کوکی‌ها به ما کمک می‌کنند تا بفهمیم بازدیدکنندگان چگونه با وب‌سایت ما تعامل دارند.',
+  //     toggle: createCheckbox(false),
+  //     isAlwaysActive: false
+  //   }
+  // ];
+  
+  // const analyticsCategory = createAccordionCategory(
+  //   'Analytics Cookies', 
+  //   'این کوکی‌ها به ما اجازه می‌دهند بازدیدها و منابع ترافیک را بشماریم تا بتوانیم عملکرد سایت خود را اندازه‌گیری و بهبود بخشیم. آنها به ما کمک می‌کنند تا بدانیم کدام صفحات محبوب‌ترین و کم‌محبوب‌ترین هستند و ببینیم بازدیدکنندگان چگونه در سایت حرکت می‌کنند.',
+  //   createCheckbox(false),
+  //   false,
+  //   analyticsSubChoices
+  // );
+  
+  // // Marketing category
+  // const marketingSubChoices = [
+  //   {
+  //     name: 'Personalized Advertising',
+  //     description: 'این کوکی‌ها برای شخصی‌سازی پیام‌های تبلیغاتی استفاده می‌شوند.',
+  //     toggle: createCheckbox(false),
+  //     isAlwaysActive: false
+  //   },
+  //   {
+  //     name: 'Cross-Device Tracking',
+  //     description: 'این کوکی‌ها ممکن است از طریق سایت ما توسط شرکای تبلیغاتی ما تنظیم شوند.',
+  //     toggle: createCheckbox(false),
+  //     isAlwaysActive: false
+  //   }
+  // ];
+  
+  // const marketingCategory = createAccordionCategory(
+  //   'Targeting Cookies', 
+  //   'این کوکی‌ها برای شخصی‌سازی پیام‌های تبلیغاتی استفاده می‌شوند و ممکن است از طریق سایت ما توسط ما یا شرکای تبلیغاتی ما تنظیم شوند. آنها ممکن است برای ایجاد نمایه‌ای از علایق شما و نمایش تبلیغات مرتبط در سایت ما یا سایت‌های دیگر استفاده شوند.',
+  //   createCheckbox(false),
+  //   false,
+  //   marketingSubChoices
+  // );
+  
+  // // Save choices category (Always Active)
+  // const saveChoicesCategory = createAccordionCategory(
+  //   'Save and communicate privacy choices', 
+  //   'انتخاب‌هایی که شما در مورد اهداف و نهادهای فهرست شده در این اطلاعیه انجام می‌دهید ذخیره شده و در قالب سیگنال‌های دیجیتال (مانند رشته‌ای از کاراکترها) برای آن نهادها در دسترس قرار می‌گیرد. این کار برای فعال کردن هم این سرویس و هم آن نهادها برای احترام به چنین انتخاب‌هایی ضروری است.',
+  //   createDisabledCheckbox(true),
+  //   true
+  // );
+  
+  // fallback.appendChild(necessaryCategory);
+  // fallback.appendChild(analyticsCategory);
+  // fallback.appendChild(marketingCategory);
+  // fallback.appendChild(saveChoicesCategory);
+  
   return fallback;
 }
 // Extract buttons from OneTrust banner
@@ -722,6 +606,7 @@ function extractOneTrustButtons(banner) {
     return [];
   }
 }
+
 // Extract buttons from banner
 function extractButtons(banner) {
   log("[Cookie Simplifier] Extracting buttons from banner...");
@@ -735,11 +620,34 @@ function extractButtons(banner) {
   const buttons = [];
   
   try {
-    const clickableElements = banner.querySelectorAll('button, a[role="button"], [role="button"], div[onclick], [data-consent], [data-cmp]');
+    // Expanded selector for clickable elements
+    const clickableElements = banner.querySelectorAll(
+      'button, ' +
+      'a[role="button"], ' +
+      '[role="button"], ' +
+      'div[onclick], ' +
+      '[data-consent], ' +
+      '[data-cmp], ' +
+      'input[type="button"], ' +
+      'input[type="submit"], ' +
+      '.btn, ' +
+      '.button, ' +
+      '[class*="btn"], ' +
+      '[class*="button"], ' +
+      '[id*="btn"], ' +
+      '[id*="button"], ' +
+      '.cookie-btn, ' +
+      '.consent-btn, ' +
+      '.accept-btn, ' +
+      '.reject-btn, ' +
+      '.settings-btn, ' +
+      '.preferences-btn'
+    );
     log(`[Cookie Simplifier] Found ${clickableElements.length} clickable elements`);
     
     clickableElements.forEach(element => {
-      const text = element.textContent.trim().toLowerCase();
+      // Normalize the text by removing extra spaces and converting to lowercase
+      const text = element.textContent.trim().toLowerCase().replace(/\s+/g, ' ');
       
       // Skip close buttons explicitly
       if (text === '✕' || text.includes('close') || text.includes('dismiss') || element.closest('#onetrust-close-btn-container')) {
@@ -758,16 +666,57 @@ function extractButtons(banner) {
       
       log(`[Cookie Simplifier] Processing button with text: "${text}"`);
       
+      // Check against button keywords
+      let buttonType = null;
       for (const [type, keywords] of Object.entries(buttonKeywords)) {
         if (keywords.some(keyword => text.includes(keyword))) {
-          buttons.push({ 
-            type, 
-            element, 
-            text: element.textContent.trim() || type.charAt(0).toUpperCase() + type.slice(1) 
-          });
-          log(`[Cookie Simplifier] Identified as ${type.toUpperCase()} button`);
+          buttonType = type;
           break;
         }
+      }
+      
+      // If no match by text, try to match by attributes
+      if (!buttonType) {
+        const attributes = element.getAttributeNames();
+        const attributeValues = attributes.map(attr => element.getAttribute(attr).toLowerCase());
+        
+        // Check for accept-related attributes
+        if (attributes.some(attr => attr.includes('accept')) || 
+            attributeValues.some(val => val.includes('accept'))) {
+          buttonType = 'accept';
+        }
+        // Check for reject-related attributes
+        else if (attributes.some(attr => attr.includes('reject')) || 
+                 attributeValues.some(val => val.includes('reject'))) {
+          buttonType = 'reject';
+        }
+        // Check for customize-related attributes
+        else if (attributes.some(attr => attr.includes('customize')) || 
+                 attributeValues.some(val => val.includes('customize')) ||
+                 attributes.some(attr => attr.includes('setting')) || 
+                 attributeValues.some(val => val.includes('setting'))) {
+          buttonType = 'customize';
+        }
+      }
+      
+      // If still no match, try to infer from button position (last button is often accept)
+      if (!buttonType && clickableElements.length > 1) {
+        const index = Array.from(clickableElements).indexOf(element);
+        if (index === clickableElements.length - 1) {
+          buttonType = 'accept';
+        } else if (index === clickableElements.length - 2) {
+          buttonType = 'reject';
+        }
+      }
+      
+      // If we found a button type, add it
+      if (buttonType) {
+        buttons.push({ 
+          type: buttonType, 
+          element, 
+          text: element.textContent.trim() || buttonType.charAt(0).toUpperCase() + buttonType.slice(1) 
+        });
+        log(`[Cookie Simplifier] Identified as ${buttonType.toUpperCase()} button`);
       }
     });
     
@@ -794,7 +743,7 @@ function extractButtons(banner) {
 }
 // Helper function to check if a category is always active
 function isAlwaysActiveCategory(categoryElement, toggle, categoryName) {
-  // Check if toggle is disabled and checked (common pattern for necessary cookies)
+
   if (toggle && toggle.disabled && toggle.checked) {
     return true;
   }
@@ -866,8 +815,85 @@ function isAlwaysActiveCategory(categoryElement, toggle, categoryName) {
   
   return false;
 }
-// Create an accordion category item with sub-choices
+// Translation mapping for cookie categories and subcategories
+const CATEGORY_TRANSLATIONS = {
+  "Strictly Necessary Cookies": "کوکی‌های ضروری",
+  "Necessary Cookies": "کوکی‌های ضروری",
+  "Analytics Cookies": "کوکی‌های تحلیلی",
+  "Performance Cookies": "کوکی‌های کارآیی",
+  "Functional Cookies": "کوکی‌های عملکردی",
+  "Targeting Cookies": "کوکی‌های تبلیغاتی هدفمند",
+  "Advertising Cookies": "کوکی‌های تبلیغاتی",
+  "Social Media Cookies": "کوکی‌های شبکه‌های اجتماعی",
+  "Unclassified Cookies": "کوکی‌های طبقه‌بندی نشده",
+  "Save and communicate privacy choices": "ذخیره تنظیمات حریم خصوصی",
+  "Authentication": "احراز هویت",
+  "Security": "امنیت",
+  "Performance Measurement": "اندازه‌گیری عملکرد",
+  "User Behavior Analysis": "تحلیل رفتار کاربر",
+  "Personalized Advertising": "تبلیغات شخصی‌سازی شده",
+  "Cross-Device Tracking": "ردیابی میان‌دستگاهی"
+};
+
+// Persian text mappings for the banner
+const PERSIAN_TEXTS = {
+  bannerTitle: "تنظیمات کوکی‌ها",
+  bannerDescription: "ما از کوکی‌ها برای بهبود تجربه شما در وب‌سایت استفاده می‌کنیم. لطفاً تنظیمات کوکی خود را انتخاب کنید.",
+  acceptAllButton: "پذیرش همه",
+  rejectAllButton: "رد همه",
+  acceptSelectionButton: "پذیرش انتخاب",
+  categoryDescriptions: {
+    "Strictly Necessary Cookies": "این کوکی‌ها برای عملکرد وب‌سایت ضروری هستند و نمی‌توان آن‌ها را غیرفعال کرد.",
+    "Necessary Cookies": "این کوکی‌ها برای عملکرد وب‌سایت ضروری هستند و نمی‌توان آن‌ها را غیرفعال کرد.",
+    "Analytics Cookies": "این کوکی‌ها به ما کمک می‌کنند تا بفهمیم چگونه از وب‌سایت استفاده می‌کنید.",
+    "Performance Cookies": "این کوکی‌ها به ما کمک می‌کنند تا عملکرد وب‌سایت را بهبود بخشیم.",
+    "Functional Cookies": "این کوکی‌ها به ما اجازه می‌دهند تا ترجیحات شما را به خاطر بسپاریم.",
+    "Targeting Cookies": "این کوکی‌ها برای نمایش تبلیغات مرتبط با شما استفاده می‌شوند.",
+    "Advertising Cookies": "این کوکی‌ها برای نمایش تبلیغات مرتبط با شما استفاده می‌شوند.",
+    "Social Media Cookies": "این کوکی‌ها به شما اجازه می‌دهند تا محتوا را در شبکه‌های اجتماعی به اشتراک بگذارید.",
+    "Unclassified Cookies": "این کوکی‌ها هنوز طبقه‌بندی نشده‌اند.",
+    "Save and communicate privacy choices": "این کوکی برای ذخیره تنظیمات حریم خصوصی شما ضروری است."
+  }
+};
+
+// Regex patterns for matching category names (ordered by specificity)
+const CATEGORY_PATTERNS = [
+  { pattern: /Strictly Necessary Cookies/i, key: "Strictly Necessary Cookies" },
+  { pattern: /Required Cookies/i, key: "Strictly Necessary Cookies" },
+  { pattern: /Necessary Cookies/i, key: "Necessary Cookies" },
+  { pattern: /Analytics Cookies/i, key: "Analytics Cookies" },
+  { pattern: /Performance Cookies/i, key: "Performance Cookies" },
+  { pattern: /Functional Cookies/i, key: "Functional Cookies" },
+  { pattern: /Targeting Cookies/i, key: "Targeting Cookies" },
+  { pattern: /Advertising Cookies/i, key: "Advertising Cookies" },
+  { pattern: /Social Media Cookies/i, key: "Social Media Cookies" },
+  { pattern: /Unclassified Cookies/i, key: "Unclassified Cookies" },
+  { pattern: /Save and communicate privacy choices/i, key: "Save and communicate privacy choices" },
+  { pattern: /Authentication/i, key: "Authentication" },
+  { pattern: /Security/i, key: "Security" },
+  { pattern: /Performance Measurement/i, key: "Performance Measurement" },
+  { pattern: /User Behavior Analysis/i, key: "User Behavior Analysis" },
+  { pattern: /Personalized Advertising/i, key: "Personalized Advertising" },
+  { pattern: /Cross-Device Tracking/i, key: "Cross-Device Tracking" }
+];
+
+// Helper function to translate category names using regex matching
+function translateCategoryName(name) {
+  // Try to match each pattern in order
+  for (const { pattern, key } of CATEGORY_PATTERNS) {
+    if (pattern.test(name)) {
+      return CATEGORY_TRANSLATIONS[key] || name;
+    }
+  }
+  // If no pattern matches, return the original name
+  return name;
+}
+
+// Modify the createAccordionCategory function to use translations
 function createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = []) {
+  // Translate the category name
+  const translatedName = translateCategoryName(categoryName);
+  
   const categoryItem = document.createElement('div');
   categoryItem.className = 'cookie-category-item';
   categoryItem.style.backgroundColor = '#f9f9f9';
@@ -892,7 +918,7 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
   
   const categoryNameElement = document.createElement('span');
   categoryNameElement.className = 'cookie-category-name';
-  categoryNameElement.textContent = categoryName;
+  categoryNameElement.textContent = translatedName; // Use translated name
   categoryNameElement.style.fontWeight = 'bold';
   categoryNameElement.style.color = '#000000';
   categoryNameElement.style.marginRight = '10px';
@@ -900,7 +926,7 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
   // Add "Always Active" badge if needed
   if (isAlwaysActive) {
     const alwaysActiveBadge = document.createElement('span');
-    alwaysActiveBadge.textContent = 'Always Active';
+    alwaysActiveBadge.textContent = 'همیشه فعال';
     alwaysActiveBadge.style.fontSize = '10px';
     alwaysActiveBadge.style.padding = '2px 6px';
     alwaysActiveBadge.style.backgroundColor = '#4CAF50';
@@ -939,14 +965,17 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
   toggleContainer.appendChild(toggleClone);
   header.appendChild(toggleContainer);
   
-  // Category description (initially hidden)
+  // Category description (initially hidden) - Use Persian description
   const descriptionContainer = document.createElement('div');
   descriptionContainer.className = 'cookie-category-description';
   descriptionContainer.style.padding = '0 12px 12px 12px';
   descriptionContainer.style.backgroundColor = '#ffffff';
   descriptionContainer.style.color = '#000000';
   descriptionContainer.style.display = 'none'; // Initially hidden
-  descriptionContainer.innerHTML = description || 'No description available.';
+  
+  // Use Persian description for the category
+  const persianDescription = PERSIAN_TEXTS.categoryDescriptions[categoryName] || description;
+  descriptionContainer.innerHTML = persianDescription;
   
   // Sub-choices container (initially hidden)
   const subChoicesContainer = document.createElement('div');
@@ -973,12 +1002,13 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
       const subChoiceName = document.createElement('div');
       subChoiceName.style.fontWeight = 'bold';
       subChoiceName.style.color = '#000000';
-      subChoiceName.textContent = subChoice.name;
+      // Translate subcategory name
+      subChoiceName.textContent = translateCategoryName(subChoice.name);
       
       // Add "Always Active" badge for sub-choice if needed
       if (subChoice.isAlwaysActive) {
         const subAlwaysActiveBadge = document.createElement('span');
-        subAlwaysActiveBadge.textContent = 'Always Active';
+        subAlwaysActiveBadge.textContent = 'همیشه فعال';
         subAlwaysActiveBadge.style.fontSize = '9px';
         subAlwaysActiveBadge.style.padding = '1px 4px';
         subAlwaysActiveBadge.style.backgroundColor = '#4CAF50';
@@ -1040,6 +1070,7 @@ function createAccordionCategory(categoryName, description, toggleElement, isAlw
   
   return categoryItem;
 }
+
 // Extract customization page content
 async function extractCustomizationContent(banner) {
   log("[Cookie Simplifier] Extracting customization page content...");
@@ -1071,52 +1102,13 @@ async function extractCustomizationContent(banner) {
     if (!customizationPage) {
       log("[Cookie Simplifier] Customization page not found, attempting to trigger it");
       
-      // Find the customize button with multiple strategies
-      let customizeBtn = null;
-      
-      // Strategy 1: Look for specific OneTrust button
-      customizeBtn = banner.querySelector('#onetrust-pc-btn-handler');
-      
-      // Strategy 2: Look for buttons with specific text
-      if (!customizeBtn) {
-        const buttons = banner.querySelectorAll('button');
-        for (const button of buttons) {
-          const buttonText = button.textContent.toLowerCase();
-          if (buttonText.includes('cookie settings') || 
-              buttonText.includes('preferences') || 
-              buttonText.includes('settings') ||
-              buttonText.includes('customize')) {
-            customizeBtn = button;
-            log(`[Cookie Simplifier] Found customize button by text: "${button.textContent.trim()}"`);
-            break;
-          }
-        }
-      }
-      
-      // Strategy 3: Look for buttons with specific aria-label
-      if (!customizeBtn) {
-        const buttons = banner.querySelectorAll('button[aria-label*="cookie"], button[aria-label*="setting"], button[aria-label*="preference"]');
-        if (buttons.length > 0) {
-          customizeBtn = buttons[0];
-          log(`[Cookie Simplifier] Found customize button by aria-label: "${customizeBtn.getAttribute('aria-label')}"`);
-        }
-      }
-      
-      // Strategy 4: Look for buttons in the entire document
-      if (!customizeBtn) {
-        const allButtons = document.querySelectorAll('button');
-        for (const button of allButtons) {
-          const buttonText = button.textContent.toLowerCase();
-          if (buttonText.includes('cookie settings') || 
-              buttonText.includes('preferences') || 
-              buttonText.includes('settings') ||
-              buttonText.includes('customize')) {
-            customizeBtn = button;
-            log(`[Cookie Simplifier] Found customize button in document by text: "${button.textContent.trim()}"`);
-            break;
-          }
-        }
-      }
+      // Find the customize button
+      const customizeBtn = banner.querySelector('#onetrust-pc-btn-handler') || 
+                          banner.querySelector('button') || 
+                          Array.from(banner.querySelectorAll('button')).find(btn => 
+                            btn.textContent.toLowerCase().includes('customize') || 
+                            btn.textContent.toLowerCase().includes('settings')
+                          );
       
       if (customizeBtn) {
         log("[Cookie Simplifier] Clicking customize button to open preferences");
@@ -1129,52 +1121,21 @@ async function extractCustomizationContent(banner) {
         banner.style.position = 'absolute';
         banner.style.left = '-9999px';
         
-        // Make sure the button is visible and enabled
-        customizeBtn.style.display = 'block';
-        customizeBtn.style.visibility = 'visible';
-        
-        // Click the customize button with multiple methods
+        // Click the customize button with error handling
         try {
-          // Method 1: Direct click
           customizeBtn.click();
-          log("[Cookie Simplifier] Attempted direct click");
         } catch (error) {
-          log(`[Cookie Simplifier] Direct click failed: ${error.message}`);
-          
-          // Method 2: Dispatch mouse event
-          try {
-            const mouseEvent = new MouseEvent('click', {
-              view: window,
-              bubbles: true,
-              cancelable: true
-            });
-            customizeBtn.dispatchEvent(mouseEvent);
-            log("[Cookie Simplifier] Attempted mouse event dispatch");
-          } catch (dispatchError) {
-            log(`[Cookie Simplifier] Mouse event dispatch failed: ${dispatchError.message}`);
-            
-            // Method 3: Simulate click using JavaScript
-            try {
-              const event = new Event('click', {
-                bubbles: true,
-                cancelable: true
-              });
-              customizeBtn.dispatchEvent(event);
-              log("[Cookie Simplifier] Attempted generic event dispatch");
-            } catch (genericError) {
-              log(`[Cookie Simplifier] Generic event dispatch failed: ${genericError.message}`);
-            }
-          }
+          log(`[Cookie Simplifier] Error clicking customize button: ${error.message}`);
+          // Restore original banner position
+          banner.style.position = originalBannerPosition;
+          banner.style.left = '';
+          return createFallbackCustomizationContent();
         }
         
         // Wait for the customization page to appear
         return new Promise((resolve) => {
           let pageFound = false;
-          let attempts = 0;
-          const maxAttempts = 100; // 10 seconds max wait
-          
           const checkInterval = setInterval(() => {
-            attempts++;
             let foundPage = null;
             
             // Check for OneTrust preference center
@@ -1232,7 +1193,7 @@ async function extractCustomizationContent(banner) {
               cleanContainer.style.padding = '15px';
               
               // Extract title
-              const titleElement = foundPage.querySelector('h1, h2, h3, .title, .header, .ot-pc-title');
+              const titleElement = foundPage.querySelector('h1, h2, h3, .title, .header');
               if (titleElement) {
                 const titleClone = titleElement.cloneNode(true);
                 titleClone.style.color = '#000000';
@@ -1260,12 +1221,7 @@ async function extractCustomizationContent(banner) {
                 '.category-content',      // Category content
                 '.preference-category',   // Preference category
                 '.cookie-preference',     // Cookie preference
-                '.consent-preference',    // Consent preference
-                '.ot-sdk-column',         // OneTrust column
-                '.ot-sdk-columns',        // OneTrust columns
-                '.ot-pc-category',        // OneTrust PC category
-                '.ot-pc-group',          // OneTrust PC group
-                '.ot-pc-section'         // OneTrust PC section
+                '.consent-preference'     // Consent preference
               ];
               
               let foundCategories = false;
@@ -1279,7 +1235,7 @@ async function extractCustomizationContent(banner) {
                   categoryElements.forEach(category => {
                     // Extract category name
                     let categoryName = '';
-                    const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"], .ot-cat-header');
+                    const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
                     if (titleElement) {
                       categoryName = titleElement.textContent.trim();
                     } else {
@@ -1299,7 +1255,7 @@ async function extractCustomizationContent(banner) {
                     
                     // Extract description
                     let description = '';
-                    const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p, .ot-cat-grp-desc');
+                    const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
                     if (descElement) {
                       description = descElement.innerHTML.trim();
                     }
@@ -1308,7 +1264,7 @@ async function extractCustomizationContent(banner) {
                     let toggle = category.querySelector('input[type="checkbox"]');
                     if (!toggle) {
                       // Look for toggle switches or other input types
-                      toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"], .ot-toggle');
+                      toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"]');
                     }
                     
                     // Create a toggle switch if none found
@@ -1323,12 +1279,12 @@ async function extractCustomizationContent(banner) {
                     
                     // Check for subcategories
                     const subChoices = [];
-                    const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"], .ot-sub-item, .ot-sub-grp');
+                    const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"], .ot-sub-item');
                     
                     if (subCategoryElements.length > 0) {
                       subCategoryElements.forEach(subCategory => {
-                        const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"], .ot-sub-grp-title')?.textContent.trim() || 'Subcategory';
-                        const subDesc = subCategory.querySelector('p, .description, [class*="desc"], .ot-sub-grp-desc')?.innerHTML.trim() || '';
+                        const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]')?.textContent.trim() || 'Subcategory';
+                        const subDesc = subCategory.querySelector('p, .description, [class*="desc"]')?.innerHTML.trim() || '';
                         
                         let subToggle = subCategory.querySelector('input[type="checkbox"], input[type="radio"]');
                         if (!subToggle) {
@@ -1479,8 +1435,13 @@ async function extractCustomizationContent(banner) {
               foundPage.style.display = 'none';
               
               resolve(cleanContainer);
-            } else if (attempts >= maxAttempts) {
-              clearInterval(checkInterval);
+            }
+          }, 100);
+          
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            if (!pageFound) {
               log("[Cookie Simplifier] Timeout waiting for customization page");
               
               // Restore original banner position
@@ -1493,11 +1454,8 @@ async function extractCustomizationContent(banner) {
               // Return fallback content
               resolve(createFallbackCustomizationContent());
             }
-          }, 100); // Check every 100ms
+          }, 5000);
         });
-      } else {
-        log("[Cookie Simplifier] Could not find customize button");
-        return createFallbackCustomizationContent();
       }
     }
     
@@ -1515,7 +1473,7 @@ async function extractCustomizationContent(banner) {
       cleanContainer.style.padding = '15px';
       
       // Extract title
-      const titleElement = customizationPage.querySelector('h1, h2, h3, .title, .header, .ot-pc-title');
+      const titleElement = customizationPage.querySelector('h1, h2, h3, .title, .header');
       if (titleElement) {
         const titleClone = titleElement.cloneNode(true);
         titleClone.style.color = '#000000';
@@ -1543,12 +1501,7 @@ async function extractCustomizationContent(banner) {
         '.category-content',      // Category content
         '.preference-category',   // Preference category
         '.cookie-preference',     // Cookie preference
-        '.consent-preference',    // Consent preference
-        '.ot-sdk-column',         // OneTrust column
-        '.ot-sdk-columns',        // OneTrust columns
-        '.ot-pc-category',        // OneTrust PC category
-        '.ot-pc-group',          // OneTrust PC group
-        '.ot-pc-section'         // OneTrust PC section
+        '.consent-preference'     // Consent preference
       ];
       
       let foundCategories = false;
@@ -1562,7 +1515,7 @@ async function extractCustomizationContent(banner) {
           categoryElements.forEach(category => {
             // Extract category name
             let categoryName = '';
-            const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"], .ot-cat-header');
+            const titleElement = category.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
             if (titleElement) {
               categoryName = titleElement.textContent.trim();
             } else {
@@ -1582,7 +1535,7 @@ async function extractCustomizationContent(banner) {
             
             // Extract description
             let description = '';
-            const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p, .ot-cat-grp-desc');
+            const descElement = category.querySelector('.ot-cat-desc, .category-description, [class*="desc"], p');
             if (descElement) {
               description = descElement.innerHTML.trim();
             }
@@ -1591,7 +1544,7 @@ async function extractCustomizationContent(banner) {
             let toggle = category.querySelector('input[type="checkbox"]');
             if (!toggle) {
               // Look for toggle switches or other input types
-              toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"], .ot-toggle');
+              toggle = category.querySelector('input[type="radio"], .toggle, .switch, [role="switch"], [role="checkbox"]');
             }
             
             // Create a toggle switch if none found
@@ -1606,12 +1559,12 @@ async function extractCustomizationContent(banner) {
             
             // Check for subcategories
             const subChoices = [];
-            const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"], .ot-sub-item, .ot-sub-grp');
+            const subCategoryElements = category.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"], .ot-sub-item');
             
             if (subCategoryElements.length > 0) {
               subCategoryElements.forEach(subCategory => {
-                const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"], .ot-sub-grp-title')?.textContent.trim() || 'Subcategory';
-                const subDesc = subCategory.querySelector('p, .description, [class*="desc"], .ot-sub-grp-desc')?.innerHTML.trim() || '';
+                const subName = subCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]')?.textContent.trim() || 'Subcategory';
+                const subDesc = subCategory.querySelector('p, .description, [class*="desc"]')?.innerHTML.trim() || '';
                 
                 let subToggle = subCategory.querySelector('input[type="checkbox"], input[type="radio"]');
                 if (!subToggle) {
@@ -1787,107 +1740,637 @@ function createDisabledCheckbox(checked) {
   return checkbox;
 }
 // Create fallback customization content
-function createFallbackCustomizationContent() {
-  const fallback = document.createElement('div');
-  fallback.className = 'customization-content black-text';
-  fallback.style.color = '#000000';
-  fallback.style.backgroundColor = '#ffffff';
-  fallback.style.padding = '15px';
+function createSimplifiedBanner(banner, buttons, bannerContent, customizationContent) {
+  log("[Cookie Simplifier] Creating simplified banner...");
   
-  // Title
-  const title = document.createElement('h3');
-  title.textContent = 'Cookie Settings';
-  title.style.color = '#000000';
-  title.style.marginBottom = '15px';
-  fallback.appendChild(title);
-  
-  // Necessary category (Always Active)
-  const necessarySubChoices = [
-    {
-      name: 'Authentication',
-      description: 'These cookies are necessary for the website to function and cannot be switched off.',
-      toggle: createDisabledCheckbox(true),
-      isAlwaysActive: true
-    },
-    {
-      name: 'Security',
-      description: 'These cookies help us protect the website from malicious activities.',
-      toggle: createDisabledCheckbox(true),
-      isAlwaysActive: true
+  try {
+    // Remove existing simplified banner
+    const existingBanner = document.getElementById('simplified-cookie-banner');
+    if (existingBanner) {
+      log("[Cookie Simplifier] Simplified banner already exists, removing old one");
+      existingBanner.remove();
     }
-  ];
-  
-  const necessaryCategory = createAccordionCategory(
-    'Strictly Necessary Cookies', 
-    'These cookies are necessary for the website to function and cannot be switched off in our systems. They are usually only set in response to actions made by you which amount to a request for services, such as setting your privacy preferences, logging in or filling in forms.',
-    createDisabledCheckbox(true),
-    true,
-    necessarySubChoices
-  );
-  
-  // Analytics category
-  const analyticsSubChoices = [
-    {
-      name: 'Performance Measurement',
-      description: 'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site.',
-      toggle: createCheckbox(false),
-      isAlwaysActive: false
-    },
-    {
-      name: 'User Behavior Analysis',
-      description: 'These cookies help us understand how visitors interact with our website.',
-      toggle: createCheckbox(false),
-      isAlwaysActive: false
+    
+    // Get the original banner's dimensions
+    const bannerRect = banner.getBoundingClientRect();
+    
+    const newBanner = document.createElement('div');
+    newBanner.id = 'simplified-cookie-banner';
+    newBanner.setAttribute('role', 'dialog');
+    newBanner.setAttribute('aria-label', PERSIAN_TEXTS.bannerTitle);
+    newBanner.setAttribute('dir', 'rtl'); // Set RTL direction for the entire banner
+    
+    // Position the banner in the center of the page
+    newBanner.style.position = 'fixed';
+    newBanner.style.top = '50%';
+    newBanner.style.left = '50%';
+    newBanner.style.transform = 'translate(-50%, -50%)';
+    
+    // Use the original banner's dimensions or default size
+    newBanner.style.width = bannerRect.width > 300 ? `${bannerRect.width}px` : '600px';
+    newBanner.style.maxWidth = '90vw'; // Use viewport width for better responsiveness
+    newBanner.style.maxHeight = '85vh'; // Limit height to 85% of viewport height
+    newBanner.style.overflow = 'hidden'; // Hide overflow for the main container
+    
+    newBanner.style.backgroundColor = 'white';
+    newBanner.style.border = '1px solid #ccc';
+    newBanner.style.padding = '0'; // Remove padding from main container
+    newBanner.style.zIndex = '9999999';
+    newBanner.style.boxShadow = '0 5px 15px rgba(0,0,0,0.3)';
+    newBanner.style.borderRadius = '8px';
+    newBanner.style.fontFamily = 'Arial, sans-serif';
+    newBanner.style.display = 'flex';
+    newBanner.style.flexDirection = 'column';
+    
+    // Add CSS for black text class and RTL support
+    const style = document.createElement('style');
+    style.textContent = `
+      .black-text p,
+      .black-text h1,
+      .black-text h2,
+      .black-text h3,
+      .black-text h4,
+      .black-text h5,
+      .black-text h6,
+      .black-text span,
+      .black-text div,
+      .black-text li,
+      .black-text td,
+      .black-text th {
+        color: #000000 !important;
+      }
+      .rtl-text {
+        direction: rtl;
+        text-align: right;
+      }
+      .rtl-toggle {
+        margin-left: 10px;
+        margin-right: 0;
+      }
+    `;
+    newBanner.appendChild(style);
+    
+    // Header section with title and close button
+    const header = document.createElement('div');
+    header.style.padding = '20px 20px 10px 20px';
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    
+    // Title - Use Persian text
+    const title = document.createElement('h3');
+    title.textContent = PERSIAN_TEXTS.bannerTitle;
+    title.setAttribute('dir', 'rtl');
+    title.style.margin = '0';
+    title.style.fontSize = '18px';
+    title.style.color = '#333';
+    header.appendChild(title);
+    
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.setAttribute('aria-label', 'Close cookie preferences');
+    closeBtn.setAttribute('tabindex', '0');
+    closeBtn.style.background = 'none';
+    closeBtn.style.border = 'none';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.style.fontSize = '18px';
+    closeBtn.style.color = '#777';
+    closeBtn.style.padding = '0';
+    closeBtn.style.width = '24px';
+    closeBtn.style.height = '24px';
+    closeBtn.style.display = 'flex';
+    closeBtn.style.alignItems = 'center';
+    closeBtn.style.justifyContent = 'center';
+    closeBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Closed simplified banner");
+      
+      // IMPORTANT: Do NOT restore the original banner, overlays, or customization page
+      // They should remain hidden
+      
+      newBanner.remove();
+    });
+    closeBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Keyboard closed simplified banner");
+        
+        // IMPORTANT: Do NOT restore the original banner, overlays, or customization page
+        // They should remain hidden
+        
+        newBanner.remove();
+      }
+    });
+    header.appendChild(closeBtn);
+    
+    newBanner.appendChild(header);
+    
+    // Content container with scrollable HTML content
+    const contentContainer = document.createElement('div');
+    contentContainer.style.padding = '0 20px 20px 20px';
+    contentContainer.style.overflowY = 'auto'; // Make content scrollable
+    contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
+    contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
+    
+    // Use Persian description instead of extracted banner content
+    const persianDescription = document.createElement('div');
+    persianDescription.className = 'extracted-banner-content black-text rtl-text';
+    persianDescription.style.color = '#000000';
+    persianDescription.style.backgroundColor = '#ffffff';
+    persianDescription.setAttribute('dir', 'rtl');
+    persianDescription.innerHTML = `<p style="color: #000000;">${PERSIAN_TEXTS.bannerDescription}</p>`;
+    contentContainer.appendChild(persianDescription);
+    
+    // Add a separator between content and customization
+    const separator = document.createElement('hr');
+    separator.style.margin = '20px 0';
+    separator.style.border = 'none';
+    separator.style.borderTop = '1px solid #eee';
+    contentContainer.appendChild(separator);
+    
+    // Add the prefetched customization content
+    if (customizationContent) {
+      contentContainer.appendChild(customizationContent);
+    } else {
+      // Fallback customization content if none was prefetched
+      const fallbackCustomization = createFallbackCustomizationContent();
+      contentContainer.appendChild(fallbackCustomization);
     }
-  ];
-  
-  const analyticsCategory = createAccordionCategory(
-    'Analytics Cookies', 
-    'These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site. They help us to know which pages are the most and least popular and see how visitors move around the site.',
-    createCheckbox(false),
-    false,
-    analyticsSubChoices
-  );
-  
-  // Marketing category
-  const marketingSubChoices = [
-    {
-      name: 'Personalized Advertising',
-      description: 'These cookies are used to make advertising messages more relevant to you.',
-      toggle: createCheckbox(false),
-      isAlwaysActive: false
-    },
-    {
-      name: 'Cross-Device Tracking',
-      description: 'These cookies may be set through our site by our advertising partners.',
-      toggle: createCheckbox(false),
-      isAlwaysActive: false
+    
+    newBanner.appendChild(contentContainer);
+    
+    // Button container (always at the bottom)
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.flexDirection = 'column';
+    buttonContainer.style.gap = '10px';
+    buttonContainer.style.padding = '0 20px 20px 20px';
+    buttonContainer.style.backgroundColor = '#ffffff'; // Ensure white background
+    
+    // Add Accept button - Use Persian text
+    const acceptBtn = document.createElement('button');
+    acceptBtn.textContent = PERSIAN_TEXTS.acceptAllButton;
+    acceptBtn.setAttribute('tabindex', '0');
+    acceptBtn.style.padding = '12px 16px';
+    acceptBtn.style.cursor = 'pointer';
+    acceptBtn.style.border = 'none';
+    acceptBtn.style.borderRadius = '4px';
+    acceptBtn.style.fontSize = '14px';
+    acceptBtn.style.fontWeight = 'bold';
+    acceptBtn.style.width = '100%'; // Make buttons full width
+    acceptBtn.style.backgroundColor = '#4CAF50';
+    acceptBtn.style.color = 'white';
+    
+    // Add click handler for Accept button (unchanged)
+    acceptBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Accept All button clicked");
+      
+      // Find and click the original accept button
+      const originalAcceptBtn = buttons.find(btn => btn.type === 'accept');
+      if (originalAcceptBtn) {
+        try {
+          const cookieBefore = document.cookie;
+          
+          // Ensure the original button is still in the DOM
+          if (!document.body.contains(originalAcceptBtn.element)) {
+            log("[Cookie Simplifier] Original accept button not in DOM, reattaching temporarily");
+            const tempContainer = document.createElement('div');
+            tempContainer.style.display = 'none';
+            tempContainer.appendChild(originalAcceptBtn.element);
+            document.body.appendChild(tempContainer);
+            originalAcceptBtn.element.click();
+            tempContainer.remove();
+          } else {
+            originalAcceptBtn.element.click();
+          }
+          
+          // Check if cookies were set
+          setTimeout(() => {
+            const cookieAfter = document.cookie;
+            log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+            
+            // If no cookies were set, try alternative approach
+            if (cookieBefore === cookieAfter) {
+              log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+              
+              // Try to find and click the accept button in the original customization page
+              if (originalCustomizationPage) {
+                const acceptAllBtn = originalCustomizationPage.querySelector('.accept-all, .accept-btn, #accept-all, [aria-label*="accept all"]');
+                if (acceptAllBtn) {
+                  acceptAllBtn.click();
+                  log("[Cookie Simplifier] Clicked accept all button in original customization page");
+                }
+              }
+            }
+            
+            // After accepting, hide any overlays that might have appeared
+            hideOverlays();
+          }, 500);
+        } catch (error) {
+          log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
+        }
+      }
+      
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Accept button (unchanged)
+    acceptBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Accept All button triggered via keyboard");
+        
+        // Find and click the original accept button
+        const originalAcceptBtn = buttons.find(btn => btn.type === 'accept');
+        if (originalAcceptBtn) {
+          try {
+            const cookieBefore = document.cookie;
+            
+            // Ensure the original button is still in the DOM
+            if (!document.body.contains(originalAcceptBtn.element)) {
+              log("[Cookie Simplifier] Original accept button not in DOM, reattaching temporarily");
+              const tempContainer = document.createElement('div');
+              tempContainer.style.display = 'none';
+              tempContainer.appendChild(originalAcceptBtn.element);
+              document.body.appendChild(tempContainer);
+              originalAcceptBtn.element.click();
+              tempContainer.remove();
+            } else {
+              originalAcceptBtn.element.click();
+            }
+            
+            // Check if cookies were set
+            setTimeout(() => {
+              const cookieAfter = document.cookie;
+              log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+              
+              // If no cookies were set, try alternative approach
+              if (cookieBefore === cookieAfter) {
+                log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+                
+                // Try to find and click the accept button in the original customization page
+                if (originalCustomizationPage) {
+                  const acceptAllBtn = originalCustomizationPage.querySelector('.accept-all, .accept-btn, #accept-all, [aria-label*="accept all"]');
+                  if (acceptAllBtn) {
+                    acceptAllBtn.click();
+                    log("[Cookie Simplifier] Clicked accept all button in original customization page");
+                  }
+                }
+              }
+              
+              // After accepting, hide any overlays that might have appeared
+              hideOverlays();
+            }, 500);
+          } catch (error) {
+            log(`[Cookie Simplifier] Error triggering accept button click: ${error.message}`);
+          }
+        }
+        
+        newBanner.remove();
+      }
+    });
+    
+    buttonContainer.appendChild(acceptBtn);
+    
+    // Add Reject button - Use Persian text
+    const rejectBtn = document.createElement('button');
+    rejectBtn.textContent = PERSIAN_TEXTS.rejectAllButton;
+    rejectBtn.setAttribute('tabindex', '0');
+    rejectBtn.style.padding = '12px 16px';
+    rejectBtn.style.cursor = 'pointer';
+    rejectBtn.style.border = 'none';
+    rejectBtn.style.borderRadius = '4px';
+    rejectBtn.style.fontSize = '14px';
+    rejectBtn.style.fontWeight = 'bold';
+    rejectBtn.style.width = '100%'; // Make buttons full width
+    rejectBtn.style.backgroundColor = '#f44336';
+    rejectBtn.style.color = 'white';
+    
+    // Add click handler for Reject button (unchanged)
+    rejectBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Reject All button clicked");
+      
+      // Find and click the original reject button
+      const originalRejectBtn = buttons.find(btn => btn.type === 'reject');
+      if (originalRejectBtn) {
+        try {
+          const cookieBefore = document.cookie;
+          
+          // Ensure the original button is still in the DOM
+          if (!document.body.contains(originalRejectBtn.element)) {
+            log("[Cookie Simplifier] Original reject button not in DOM, reattaching temporarily");
+            const tempContainer = document.createElement('div');
+            tempContainer.style.display = 'none';
+            tempContainer.appendChild(originalRejectBtn.element);
+            document.body.appendChild(tempContainer);
+            originalRejectBtn.element.click();
+            tempContainer.remove();
+          } else {
+            originalRejectBtn.element.click();
+          }
+          
+          // Check if cookies were set
+          setTimeout(() => {
+            const cookieAfter = document.cookie;
+            log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+            
+            // If no cookies were set, try alternative approach
+            if (cookieBefore === cookieAfter) {
+              log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+              
+              // Try to find and click the reject button in the original customization page
+              if (originalCustomizationPage) {
+                const rejectAllBtn = originalCustomizationPage.querySelector('.reject-all, .reject-btn, #reject-all, [aria-label*="reject all"]');
+                if (rejectAllBtn) {
+                  rejectAllBtn.click();
+                  log("[Cookie Simplifier] Clicked reject all button in original customization page");
+                }
+              }
+            }
+            
+            // After rejecting, hide any overlays that might have appeared
+            hideOverlays();
+          }, 500);
+        } catch (error) {
+          log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
+        }
+      }
+      
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Reject button (unchanged)
+    rejectBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Reject All button triggered via keyboard");
+        
+        // Find and click the original reject button
+        const originalRejectBtn = buttons.find(btn => btn.type === 'reject');
+        if (originalRejectBtn) {
+          try {
+            const cookieBefore = document.cookie;
+            
+            // Ensure the original button is still in the DOM
+            if (!document.body.contains(originalRejectBtn.element)) {
+              log("[Cookie Simplifier] Original reject button not in DOM, reattaching temporarily");
+              const tempContainer = document.createElement('div');
+              tempContainer.style.display = 'none';
+              tempContainer.appendChild(originalRejectBtn.element);
+              document.body.appendChild(tempContainer);
+              originalRejectBtn.element.click();
+              tempContainer.remove();
+            } else {
+              originalRejectBtn.element.click();
+            }
+            
+            // Check if cookies were set
+            setTimeout(() => {
+              const cookieAfter = document.cookie;
+              log(`[Cookie Simplifier] Cookie change check - Before: "${cookieBefore}", After: "${cookieAfter}"`);
+              
+              // If no cookies were set, try alternative approach
+              if (cookieBefore === cookieAfter) {
+                log("[Cookie Simplifier] No cookies were set, trying alternative approach");
+                
+                // Try to find and click the reject button in the original customization page
+                if (originalCustomizationPage) {
+                  const rejectAllBtn = originalCustomizationPage.querySelector('.reject-all, .reject-btn, #reject-all, [aria-label*="reject all"]');
+                  if (rejectAllBtn) {
+                    rejectAllBtn.click();
+                    log("[Cookie Simplifier] Clicked reject all button in original customization page");
+                  }
+                }
+              }
+              
+              // After rejecting, hide any overlays that might have appeared
+              hideOverlays();
+            }, 500);
+          } catch (error) {
+            log(`[Cookie Simplifier] Error triggering reject button click: ${error.message}`);
+          }
+        }
+        
+        newBanner.remove();
+      }
+    });
+    
+    buttonContainer.appendChild(rejectBtn);
+    
+    // Add Accept Selection button - Use Persian text
+    const acceptSelectionBtn = document.createElement('button');
+    acceptSelectionBtn.textContent = PERSIAN_TEXTS.acceptSelectionButton;
+    acceptSelectionBtn.setAttribute('tabindex', '0');
+    acceptSelectionBtn.style.padding = '12px 16px';
+    acceptSelectionBtn.style.cursor = 'pointer';
+    acceptSelectionBtn.style.border = 'none';
+    acceptSelectionBtn.style.borderRadius = '4px';
+    acceptSelectionBtn.style.fontSize = '14px';
+    acceptSelectionBtn.style.fontWeight = 'bold';
+    acceptSelectionBtn.style.width = '100%'; // Make buttons full width
+    acceptSelectionBtn.style.backgroundColor = '#2196F3';
+    acceptSelectionBtn.style.color = 'white';
+    
+    // Add click handler for Accept Selection button (unchanged)
+    acceptSelectionBtn.addEventListener('click', () => {
+      log("[Cookie Simplifier] Accept Selection button clicked");
+      
+      // First, synchronize the toggle states from our simplified banner to the original customization page
+      if (originalCustomizationPage) {
+        try {
+          // Find all category toggles in our simplified banner
+          const categoryToggles = newBanner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+          
+          categoryToggles.forEach(toggle => {
+            const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+            
+            // Find the corresponding category in the original customization page
+            const originalCategories = originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+            
+            originalCategories.forEach(originalCategory => {
+              const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+              if (originalTitle && originalTitle.textContent.trim() === categoryName) {
+                const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
+                if (originalToggle) {
+                  originalToggle.checked = toggle.checked;
+                  log(`[Cookie Simplifier] Synchronized toggle state for category: ${categoryName}`);
+                }
+              }
+            });
+          });
+          
+          // Find all subcategory toggles in our simplified banner
+          const subCategoryToggles = newBanner.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+          
+          subCategoryToggles.forEach(toggle => {
+            const subCategoryName = toggle.closest('.cookie-sub-choices > div').querySelector('div > div:first-child').textContent;
+            
+            // Find the corresponding subcategory in the original customization page
+            const originalSubCategories = originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+            
+            originalSubCategories.forEach(originalSubCategory => {
+              const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
+              if (originalTitle && originalTitle.textContent.trim() === subCategoryName) {
+                const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
+                if (originalToggle) {
+                  originalToggle.checked = toggle.checked;
+                  log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${subCategoryName}`);
+                }
+              }
+            });
+          });
+          
+          // Now find and click the save button in the original customization page
+          const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+          if (saveButton) {
+            saveButton.click();
+            log("[Cookie Simplifier] Clicked save button in original customization page");
+          } else {
+            log("[Cookie Simplifier] Could not find save button in original customization page");
+          }
+          
+          // After saving, hide any overlays that might have appeared
+          setTimeout(() => {
+            hideOverlays();
+          }, 500);
+        } catch (error) {
+          log(`[Cookie Simplifier] Error synchronizing toggle states: ${error.message}`);
+        }
+      } else {
+        log("[Cookie Simplifier] No original customization page found");
+      }
+      
+      newBanner.remove();
+    });
+    
+    // Add keyboard support for Accept Selection button (unchanged)
+    acceptSelectionBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        log("[Cookie Simplifier] Accept Selection button triggered via keyboard");
+        
+        // First, synchronize the toggle states from our simplified banner to the original customization page
+        if (originalCustomizationPage) {
+          try {
+            // Find all category toggles in our simplified banner
+            const categoryToggles = newBanner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+            
+            categoryToggles.forEach(toggle => {
+              const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+              
+              // Find the corresponding category in the original customization page
+              const originalCategories = originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+              
+              originalCategories.forEach(originalCategory => {
+                const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+                if (originalTitle && originalTitle.textContent.trim() === categoryName) {
+                  const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
+                  if (originalToggle) {
+                    originalToggle.checked = toggle.checked;
+                    log(`[Cookie Simplifier] Synchronized toggle state for category: ${categoryName}`);
+                  }
+                }
+              });
+            });
+            
+            // Find all subcategory toggles in our simplified banner
+            const subCategoryToggles = newBanner.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+            
+            subCategoryToggles.forEach(toggle => {
+              const subCategoryName = toggle.closest('.cookie-sub-choices > div').querySelector('div > div:first-child').textContent;
+              
+              // Find the corresponding subcategory in the original customization page
+              const originalSubCategories = originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+              
+              originalSubCategories.forEach(originalSubCategory => {
+                const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
+                if (originalTitle && originalTitle.textContent.trim() === subCategoryName) {
+                  const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
+                  if (originalToggle) {
+                    originalToggle.checked = toggle.checked;
+                    log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${subCategoryName}`);
+                  }
+                }
+              });
+            });
+            
+            // Now find and click the save button in the original customization page
+            const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+            if (saveButton) {
+              saveButton.click();
+              log("[Cookie Simplifier] Clicked save button in original customization page");
+            } else {
+              log("[Cookie Simplifier] Could not find save button in original customization page");
+            }
+            
+            // After saving, hide any overlays that might have appeared
+            setTimeout(() => {
+              hideOverlays();
+            }, 500);
+          } catch (error) {
+            log(`[Cookie Simplifier] Error synchronizing toggle states: ${error.message}`);
+          }
+        } else {
+          log("[Cookie Simplifier] No original customization page found");
+        }
+        
+        newBanner.remove();
+      }
+    });
+    
+    buttonContainer.appendChild(acceptSelectionBtn);
+    
+    newBanner.appendChild(buttonContainer);
+    
+    // Add a subtle shadow indicator for scrollable content
+    const scrollIndicator = document.createElement('div');
+    scrollIndicator.style.position = 'absolute';
+    scrollIndicator.style.bottom = '0';
+    scrollIndicator.style.left = '0';
+    scrollIndicator.style.right = '0';
+    scrollIndicator.style.height = '10px';
+    scrollIndicator.style.background = 'linear-gradient(to top, rgba(0,0,0,0.1), transparent)';
+    scrollIndicator.style.pointerEvents = 'none';
+    scrollIndicator.style.borderRadius = '0 0 8px 8px';
+    newBanner.appendChild(scrollIndicator);
+    
+    // Add a function to show/hide scroll indicator based on content
+    function updateScrollIndicator() {
+      if (contentContainer.scrollHeight > contentContainer.clientHeight) {
+        scrollIndicator.style.display = 'block';
+      } else {
+        scrollIndicator.style.display = 'none';
+      }
     }
-  ];
-  
-  const marketingCategory = createAccordionCategory(
-    'Targeting Cookies', 
-    'These cookies are used to make advertising messages more relevant to you and may be set through our site by us or by our advertising partners. They may be used to build a profile of your interests and show you relevant advertising on our site or on other sites.',
-    createCheckbox(false),
-    false,
-    marketingSubChoices
-  );
-  
-  // Save choices category (Always Active)
-  const saveChoicesCategory = createAccordionCategory(
-    'Save and communicate privacy choices', 
-    'The choices you make regarding the purposes and entities listed in this notice are saved and made available to those entities in the form of digital signals (such as a string of characters). This is necessary in order to enable both this service and those entities to respect such choices.',
-    createDisabledCheckbox(true),
-    true
-  );
-  
-  fallback.appendChild(necessaryCategory);
-  fallback.appendChild(analyticsCategory);
-  fallback.appendChild(marketingCategory);
-  fallback.appendChild(saveChoicesCategory);
-  
-  return fallback;
+    
+    // Initial check
+    updateScrollIndicator();
+    
+    // Set up a MutationObserver to watch for when the banner is removed
+    const bannerObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          // Check if our banner was removed
+          if (Array.from(mutation.removedNodes).includes(newBanner)) {
+            log("[Cookie Simplifier] Banner removed from DOM, cleaning up");
+            window.removeEventListener('resize', updateScrollIndicator);
+            bannerObserver.disconnect();
+            return;
+          }
+        }
+      }
+    });
+    
+    // Start observing the document body for removal of our banner
+    bannerObserver.observe(document.body, { childList: true });
+    
+    // Update on resize
+    window.addEventListener('resize', updateScrollIndicator);
+    
+    log("[Cookie Simplifier] Simplified banner created");
+    return newBanner;
+  } catch (error) {
+    log(`[Cookie Simplifier] Error creating simplified banner: ${error.message}`);
+    return null;
+  }
 }
+
 // Enhanced function to remove overlays completely
 function hideOverlays() {
   log("[Cookie Simplifier] Removing overlays");
@@ -2068,7 +2551,8 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     const newBanner = document.createElement('div');
     newBanner.id = 'simplified-cookie-banner';
     newBanner.setAttribute('role', 'dialog');
-    newBanner.setAttribute('aria-label', 'Cookie Preferences');
+    newBanner.setAttribute('aria-label', PERSIAN_TEXTS.bannerTitle);
+    newBanner.setAttribute('dir', 'rtl'); // Set RTL direction for the entire banner
     
     // Position the banner in the center of the page
     newBanner.style.position = 'fixed';
@@ -2092,7 +2576,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     newBanner.style.display = 'flex';
     newBanner.style.flexDirection = 'column';
     
-    // Add CSS for black text class
+    // Add CSS for black text class and RTL support
     const style = document.createElement('style');
     style.textContent = `
       .black-text p,
@@ -2109,6 +2593,14 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
       .black-text th {
         color: #000000 !important;
       }
+      .rtl-text {
+        direction: rtl;
+        text-align: right;
+      }
+      .rtl-toggle {
+        margin-left: 10px;
+        margin-right: 0;
+      }
     `;
     newBanner.appendChild(style);
     
@@ -2119,9 +2611,10 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     header.style.justifyContent = 'space-between';
     header.style.alignItems = 'center';
     
-    // Title
+    // Title - Use Persian text
     const title = document.createElement('h3');
-    title.textContent = 'Cookie Preferences';
+    title.textContent = PERSIAN_TEXTS.bannerTitle;
+    title.setAttribute('dir', 'rtl');
     title.style.margin = '0';
     title.style.fontSize = '18px';
     title.style.color = '#333';
@@ -2172,21 +2665,14 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
     contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
     
-    // Add the extracted HTML content
-    if (bannerContent) {
-      contentContainer.appendChild(bannerContent);
-    } else {
-      // Fallback content if extraction failed
-      const fallbackContent = document.createElement('div');
-      fallbackContent.className = 'extracted-banner-content black-text';
-      fallbackContent.style.color = '#000000';
-      fallbackContent.style.backgroundColor = '#ffffff';
-      fallbackContent.innerHTML = `
-        <p style="color: #000000;">This website uses cookies to enhance your experience. By continuing to use this site, you agree to our use of cookies.</p>
-        <p style="color: #000000;">For more information, please review the website's privacy policy.</p>
-      `;
-      contentContainer.appendChild(fallbackContent);
-    }
+    // Use Persian description instead of extracted banner content
+    const persianDescription = document.createElement('div');
+    persianDescription.className = 'extracted-banner-content black-text rtl-text';
+    persianDescription.style.color = '#000000';
+    persianDescription.style.backgroundColor = '#ffffff';
+    persianDescription.setAttribute('dir', 'rtl');
+    persianDescription.innerHTML = `<p style="color: #000000;">${PERSIAN_TEXTS.bannerDescription}</p>`;
+    contentContainer.appendChild(persianDescription);
     
     // Add a separator between content and customization
     const separator = document.createElement('hr');
@@ -2214,9 +2700,9 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     buttonContainer.style.padding = '0 20px 20px 20px';
     buttonContainer.style.backgroundColor = '#ffffff'; // Ensure white background
     
-    // Add Accept button
+    // Add Accept button - Use Persian text
     const acceptBtn = document.createElement('button');
-    acceptBtn.textContent = 'Accept All';
+    acceptBtn.textContent = PERSIAN_TEXTS.acceptAllButton;
     acceptBtn.setAttribute('tabindex', '0');
     acceptBtn.style.padding = '12px 16px';
     acceptBtn.style.cursor = 'pointer';
@@ -2228,7 +2714,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     acceptBtn.style.backgroundColor = '#4CAF50';
     acceptBtn.style.color = 'white';
     
-    // Add click handler for Accept button
+    // Add click handler for Accept button (unchanged)
     acceptBtn.addEventListener('click', () => {
       log("[Cookie Simplifier] Accept All button clicked");
       
@@ -2281,7 +2767,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
       newBanner.remove();
     });
     
-    // Add keyboard support for Accept button
+    // Add keyboard support for Accept button (unchanged)
     acceptBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         log("[Cookie Simplifier] Accept All button triggered via keyboard");
@@ -2338,9 +2824,9 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     
     buttonContainer.appendChild(acceptBtn);
     
-    // Add Reject button
+    // Add Reject button - Use Persian text
     const rejectBtn = document.createElement('button');
-    rejectBtn.textContent = 'Reject All';
+    rejectBtn.textContent = PERSIAN_TEXTS.rejectAllButton;
     rejectBtn.setAttribute('tabindex', '0');
     rejectBtn.style.padding = '12px 16px';
     rejectBtn.style.cursor = 'pointer';
@@ -2352,7 +2838,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     rejectBtn.style.backgroundColor = '#f44336';
     rejectBtn.style.color = 'white';
     
-    // Add click handler for Reject button
+    // Add click handler for Reject button (unchanged)
     rejectBtn.addEventListener('click', () => {
       log("[Cookie Simplifier] Reject All button clicked");
       
@@ -2405,7 +2891,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
       newBanner.remove();
     });
     
-    // Add keyboard support for Reject button
+    // Add keyboard support for Reject button (unchanged)
     rejectBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         log("[Cookie Simplifier] Reject All button triggered via keyboard");
@@ -2462,9 +2948,9 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     
     buttonContainer.appendChild(rejectBtn);
     
-    // Add Accept Selection button
+    // Add Accept Selection button - Use Persian text
     const acceptSelectionBtn = document.createElement('button');
-    acceptSelectionBtn.textContent = 'Accept Selection';
+    acceptSelectionBtn.textContent = PERSIAN_TEXTS.acceptSelectionButton;
     acceptSelectionBtn.setAttribute('tabindex', '0');
     acceptSelectionBtn.style.padding = '12px 16px';
     acceptSelectionBtn.style.cursor = 'pointer';
@@ -2476,148 +2962,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     acceptSelectionBtn.style.backgroundColor = '#2196F3';
     acceptSelectionBtn.style.color = 'white';
     
-    // Helper function to find and click save button
-    function findAndClickSaveButton() {
-      if (!originalCustomizationPage) {
-        log("[Cookie Simplifier] No original customization page found");
-        return false;
-      }
-      
-      let saveButton = null;
-      
-      // Strategy 1: Look for common save button selectors
-      const saveButtonSelectors = [
-        '.save-preference-btn',
-        '.btn-primary',
-        '.accept-btn',
-        '#save-preferences',
-        '[aria-label*="save"]',
-        '[data-testid*="save"]',
-        '[data-automation-id*="save"]',
-        '.ot-pc-footer .save-preference-btn', // OneTrust specific
-        '.ot-pc-footer .btn-primary',       // OneTrust specific
-        '.consent-preferences .save',        // Generic
-        '.cookie-preferences .save',         // Generic
-        '.preferences-save',                 // Generic
-        '.save-settings',                    // Generic
-        '.save-consent',                     // Generic
-        '.submit-preferences',               // Generic
-        '.apply-preferences'                 // Generic
-      ];
-      
-      for (const selector of saveButtonSelectors) {
-        saveButton = originalCustomizationPage.querySelector(selector);
-        if (saveButton) {
-          log(`[Cookie Simplifier] Found save button by selector: ${selector}`);
-          break;
-        }
-      }
-      
-      // Strategy 2: Look for buttons with save-related text
-      if (!saveButton) {
-        const buttons = originalCustomizationPage.querySelectorAll('button, [role="button"]');
-        const saveKeywords = ['save', 'confirm', 'accept', 'submit', 'done', 'apply', 'agree', 'ok'];
-        
-        for (const button of buttons) {
-          const buttonText = button.textContent.toLowerCase();
-          if (saveKeywords.some(keyword => buttonText.includes(keyword))) {
-            // Skip buttons that are clearly not save buttons
-            if (!buttonText.includes('cancel') && !buttonText.includes('reject') && !buttonText.includes('back')) {
-              saveButton = button;
-              log(`[Cookie Simplifier] Found save button by text: "${button.textContent.trim()}"`);
-              break;
-            }
-          }
-        }
-      }
-      
-      // Strategy 3: Look for buttons in footer or action areas
-      if (!saveButton) {
-        const footerContainers = originalCustomizationPage.querySelectorAll('.footer, .bottom, .actions, .buttons, .ot-pc-footer');
-        for (const container of footerContainers) {
-          const buttonsInFooter = container.querySelectorAll('button, [role="button"]');
-          if (buttonsInFooter.length > 0) {
-            // Take the last button in the footer (usually the primary action)
-            saveButton = buttonsInFooter[buttonsInFooter.length - 1];
-            log(`[Cookie Simplifier] Found save button in footer: "${saveButton.textContent.trim()}"`);
-            break;
-          }
-        }
-      }
-      
-      // Strategy 4: Look for any button that might be the save action
-      if (!saveButton) {
-        const allButtons = originalCustomizationPage.querySelectorAll('button, [role="button"]');
-        // Filter out obvious non-save buttons
-        const potentialSaveButtons = Array.from(allButtons).filter(button => {
-          const text = button.textContent.toLowerCase();
-          return !text.includes('cancel') && !text.includes('reject') && !text.includes('back') && !text.includes('close');
-        });
-        
-        if (potentialSaveButtons.length > 0) {
-          // Take the last button as it's often the primary action
-          saveButton = potentialSaveButtons[potentialSaveButtons.length - 1];
-          log(`[Cookie Simplifier] Found potential save button: "${saveButton.textContent.trim()}"`);
-        }
-      }
-      
-      if (saveButton) {
-        // Temporarily show the button to ensure it can be clicked
-        const originalDisplay = saveButton.style.display;
-        const originalVisibility = saveButton.style.visibility;
-        saveButton.style.display = 'block';
-        saveButton.style.visibility = 'visible';
-        
-        try {
-          saveButton.click();
-          log("[Cookie Simplifier] Clicked save button in original customization page");
-          return true;
-        } catch (error) {
-          log(`[Cookie Simplifier] Error clicking save button: ${error.message}`);
-          
-          // Fallback: Try to trigger the save event
-          try {
-            const event = new MouseEvent('click', {
-              view: window,
-              bubbles: true,
-              cancelable: true
-            });
-            saveButton.dispatchEvent(event);
-            log("[Cookie Simplifier] Dispatched click event on save button");
-            return true;
-          } catch (dispatchError) {
-            log(`[Cookie Simplifier] Error dispatching click event: ${dispatchError.message}`);
-            return false;
-          }
-        } finally {
-          // Restore original styles
-          saveButton.style.display = originalDisplay;
-          saveButton.style.visibility = originalVisibility;
-        }
-      } else {
-        log("[Cookie Simplifier] Could not find save button in original customization page");
-        
-        // Fallback: Try to find and click an "Accept All" button instead
-        const acceptAllButton = originalCustomizationPage.querySelector('.accept-all, .accept-btn, #accept-all, [aria-label*="accept all"]');
-        if (acceptAllButton) {
-          log("[Cookie Simplifier] Falling back to Accept All button");
-          acceptAllButton.click();
-          return true;
-        } else {
-          // Last resort: Try to save preferences by simulating form submission
-          const form = originalCustomizationPage.querySelector('form');
-          if (form) {
-            log("[Cookie Simplifier] Attempting to submit form");
-            form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-            return true;
-          }
-        }
-        
-        return false;
-      }
-    }
-    
-    // Add click handler for Accept Selection button
+    // Add click handler for Accept Selection button (unchanged)
     acceptSelectionBtn.addEventListener('click', () => {
       log("[Cookie Simplifier] Accept Selection button clicked");
       
@@ -2666,8 +3011,14 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
             });
           });
           
-          // Now find and click the save button using our improved function
-          findAndClickSaveButton();
+          // Now find and click the save button in the original customization page
+          const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+          if (saveButton) {
+            saveButton.click();
+            log("[Cookie Simplifier] Clicked save button in original customization page");
+          } else {
+            log("[Cookie Simplifier] Could not find save button in original customization page");
+          }
           
           // After saving, hide any overlays that might have appeared
           setTimeout(() => {
@@ -2683,7 +3034,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
       newBanner.remove();
     });
     
-    // Add keyboard support for Accept Selection button
+    // Add keyboard support for Accept Selection button (unchanged)
     acceptSelectionBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         log("[Cookie Simplifier] Accept Selection button triggered via keyboard");
@@ -2733,8 +3084,14 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
               });
             });
             
-            // Now find and click the save button using our improved function
-            findAndClickSaveButton();
+            // Now find and click the save button in the original customization page
+            const saveButton = originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+            if (saveButton) {
+              saveButton.click();
+              log("[Cookie Simplifier] Clicked save button in original customization page");
+            } else {
+              log("[Cookie Simplifier] Could not find save button in original customization page");
+            }
             
             // After saving, hide any overlays that might have appeared
             setTimeout(() => {
@@ -2807,6 +3164,7 @@ function createSimplifiedBanner(banner, buttons, bannerContent, customizationCon
     return null;
   }
 }
+
 // Main function to handle cookie banners
 async function handleCookieBanners() {
   if (isProcessing) {
@@ -2835,16 +3193,6 @@ async function handleCookieBanners() {
       return;
     }
     
-    // Check if this is a customization page that's hidden
-    const isCustomizationPage = CUSTOMIZATION_SELECTORS.some(selector => 
-      banner.matches(selector) || banner.querySelector(selector)
-    );
-    
-    if (isCustomizationPage && !isElementVisibleToUser(banner)) {
-      log("[Cookie Simplifier] Found hidden customization page, skipping");
-      return;
-    }
-    
     const bannerContent = extractBannerContent(banner);
     const buttons = extractButtons(banner);
     
@@ -2868,7 +3216,6 @@ async function handleCookieBanners() {
         timeoutPromise
       ]);
       
-      prefetchedCustomizationContent = customizationContent;
       log("[Cookie Simplifier] Customization content prefetched successfully");
     } catch (error) {
       log(`[Cookie Simplifier] Error prefetching customization content: ${error.message}`);
@@ -2936,8 +3283,8 @@ function setupObserver() {
       if (mutation.addedNodes.length) {
         let hasOwnBanner = false;
         for (const node of mutation.addedNodes) {
-          if (node.id === 'simplified-cookie-banner' || 
-              (node.querySelector && node.querySelector('#simplified-cookie-banner'))) {
+          if (node.id === 'simplified-banner' || 
+              (node.querySelector && node.querySelector('#simplified-banner'))) {
             hasOwnBanner = true;
             break;
           }
@@ -2953,22 +3300,22 @@ function setupObserver() {
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) {
           // Check if it's a OneTrust banner
-          for (const selector of ONETRUST_SELECTORS) {
-            let element = null;
-            if (node.matches && node.matches(selector)) {
-              element = node;
-            } else if (node.querySelector && node.querySelector(selector)) {
-              element = node.querySelector(selector);
-            }
-            if (element && isElementVisibleToUser(element) && !shouldExclude(element)) {
-              log(`[Cookie Simplifier] OneTrust banner detected via observer: ${selector}`);
-              handleCookieBanners();
-              return;
-            }
-          }
+          // for (const selector of ONETRUST_SELECTORS) {
+          //   let element = null;
+          //   if (node.matches && node.matches(selector)) {
+          //     element = node;
+          //   } else if (node.querySelector && node.querySelector(selector)) {
+          //     element = node.querySelector(selector);
+          //   }
+          //   if (element && isElementVisibleToUser(element) && !shouldExclude(element)) {
+          //     log(`[Cookie Simplifier] OneTrust banner detected via observer: ${selector}`);
+          //     handleCookieBanners();
+          //     return;
+          //   }
+          // }
           
           // Check if it's a general banner but not a false positive
-          for (const selector of GENERAL_BANNER_SELECTORS) {
+          for (const selector of BANNER_SELECTORS) {
             let element = null;
             if (node.matches && node.matches(selector)) {
               element = node;
@@ -3016,7 +3363,7 @@ function setupObserver() {
 }
 // Function to remove any existing simplified banners
 function removeExistingBanners() {
-  const existingBanner = document.getElementById('simplified-cookie-banner');
+  const existingBanner = document.getElementById('simplified-banner');
   if (existingBanner) {
     existingBanner.remove();
     log("[Cookie Simplifier] Removed existing simplified banner");
