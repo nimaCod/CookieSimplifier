@@ -7,7 +7,6 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.set({
     enabled: true,
     debugMode: true,
-    autoOpenCustomization: true, // Default to auto-open
     excludedDomains: []
   });
 });
@@ -16,7 +15,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("[Cookie Simplifier] Received message:", message);
   
   if (message.action === "getSettings") {
-    chrome.storage.sync.get(['enabled', 'debugMode', 'autoOpenCustomization', 'excludedDomains'], (data) => {
+    chrome.storage.sync.get(['enabled', 'debugMode', 'excludedDomains'], (data) => {
       sendResponse(data);
     });
     return true; // Indicates async response
