@@ -224,7 +224,7 @@ const Translations = {
   },
   banner: {
     title: "تنظیمات کوکی‌ها",
-    description: "ما از کوکی‌ها برای بهبور تجربه شما در وب‌سایت استفاده می‌کنیم. لطفاً تنظیمات کوکی خود را انتخاب کنید.",
+    description: "ما از کوکی‌ها برای بهبود تجربه شما در وب‌سایت استفاده می‌کنیم. لطفاً تنظیمات کوکی خود را انتخاب کنید.",
     acceptAll: "پذیرش همه",
     rejectAll: "رد همه",
     acceptSelection: "پذیرش انتخاب"
@@ -771,8 +771,8 @@ const ContentExtractor = {
         // Hide any overlays that might be causing the black screen
         OverlayManager.hideOverlays();
         
-        // Process the customization page
-        return this.processCustomizationPage(customizationPage);
+        // Process the customization page (now async)
+        return await this.processCustomizationPage(customizationPage);
       }
       
       log("[Cookie Simplifier] No customization page found");
@@ -910,8 +910,8 @@ const ContentExtractor = {
             // Hide any overlays that might be causing the black screen
             OverlayManager.hideOverlays();
             
-            // Process the customization page
-            resolve(this.processCustomizationPage(foundPage));
+            // Process the customization page (async)
+            this.processCustomizationPage(foundPage).then(resolve).catch(() => resolve(null));
           }
         }, 100);
         
@@ -938,9 +938,91 @@ const ContentExtractor = {
   },
   
   /**
-   * Process customization page to extract categories
+   * Process customization page using LLM (new feature) with fallback to manual
    */
-  processCustomizationPage(customizationPage) {
+  async processCustomizationPage(customizationPage) {
+    // Create a clean container for our extracted content
+    const cleanContainer = document.createElement('div');
+    cleanContainer.style.backgroundColor = '#ffffff';
+    cleanContainer.style.color = '#000000';
+    cleanContainer.style.padding = '15px';
+    
+    // Hide the original customization page
+    customizationPage.style.display = 'none';
+
+    try {
+      const html = customizationPage.outerHTML;
+      log("[Cookie Simplifier] Sending customization HTML to LLM for processing");
+
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: "processCustomization",
+          html: html,
+          categoryPatterns: CategoryPatterns,
+          translations: Translations.category
+        }, (response) => {
+          if (chrome.runtime.lastError || response.error) {
+            log(`[Cookie Simplifier] LLM processing failed: ${response.error || chrome.runtime.lastError.message}. Falling back to manual.`);
+            // Fallback to manual processing
+            const fallbackContainer = this.manualProcessCustomizationPage(customizationPage);
+            resolve(fallbackContainer);
+          } else {
+            log("[Cookie Simplifier] Received processed categories from LLM");
+
+            // Create categories container
+            const categoriesContainer = document.createElement('div');
+            categoriesContainer.style.marginTop = '20px';
+
+            response.categories.forEach(cat => {
+              let toggle = null;
+              if (!cat.isTextOnly) {
+                if (cat.isDisabled) {
+                  toggle = createDisabledCheckbox(cat.isChecked);
+                } else {
+                  toggle = createCheckbox(cat.isChecked);
+                }
+              }
+
+              const accordionCategory = UIComponents.createAccordionCategory(
+                cat.translatedName,
+                cat.description,
+                toggle,
+                (cat.isDisabled && cat.isChecked), // isAlwaysActive
+                cat.subChoices.map(sub => ({
+                  name: sub.translatedName,
+                  description: sub.description,
+                  toggle: sub.isTextOnly ? null : (sub.isDisabled ? createDisabledCheckbox(sub.isChecked) : createCheckbox(sub.isChecked)),
+                  isAlwaysActive: (sub.isDisabled && sub.isChecked),
+                  isTextOnly: sub.isTextOnly,
+                  originalName: sub.originalName // Pass for data attribute
+                })),
+                cat.isTextOnly,
+                cat.originalName // Pass originalName for data attribute
+              );
+
+              if (accordionCategory) {
+                // Store original name for syncing
+                accordionCategory.setAttribute('data-original-name', cat.originalName);
+                categoriesContainer.appendChild(accordionCategory);
+              }
+            });
+
+            cleanContainer.appendChild(categoriesContainer);
+            resolve(cleanContainer);
+          }
+        });
+      });
+    } catch (error) {
+      log(`[Cookie Simplifier] Error in LLM processing: ${error.message}. Falling back to manual.`);
+      const fallbackContainer = this.manualProcessCustomizationPage(customizationPage);
+      return fallbackContainer;
+    }
+  },
+
+  /**
+   * Manual processing (original logic as fallback)
+   */
+  manualProcessCustomizationPage(customizationPage) {
     // Create a clean container for our extracted content
     const cleanContainer = document.createElement('div');
     cleanContainer.style.backgroundColor = '#ffffff';
@@ -993,10 +1075,12 @@ const ContentExtractor = {
               categoryData.toggle, 
               categoryData.isAlwaysActive,
               categoryData.subChoices,
-              categoryData.isTextOnly
+              categoryData.isTextOnly,
+              categoryData.name // For fallback, originalName = translatedName since manual translates name
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
+              accordionCategory.setAttribute('data-original-name', categoryData.name); // In manual, use translated as original for sync
               categoriesContainer.appendChild(accordionCategory);
             }
           }
@@ -1060,10 +1144,12 @@ const ContentExtractor = {
               representativeToggle, 
               isAlwaysActive,
               [], // No sub-choices
-              false // Not text-only
+              false, // Not text-only
+              categoryName // originalName
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
+              accordionCategory.setAttribute('data-original-name', categoryName);
               categoriesContainer.appendChild(accordionCategory);
             }
           } else {
@@ -1096,10 +1182,12 @@ const ContentExtractor = {
               representativeToggle, 
               isAlwaysActive,
               [], // No sub-choices
-              false // Not text-only
+              false, // Not text-only
+              categoryName // originalName
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
+              accordionCategory.setAttribute('data-original-name', categoryName);
               categoriesContainer.appendChild(accordionCategory);
             }
           }
@@ -1115,7 +1203,8 @@ const ContentExtractor = {
         createDisabledCheckbox(true),
         true,
         [], // No sub-choices
-        false // Not text-only
+        false, // Not text-only
+        'Necessary Cookies' // originalName
       );
       const analyticsCategory = UIComponents.createAccordionCategory(
         'Analytics Cookies', 
@@ -1123,7 +1212,8 @@ const ContentExtractor = {
         createCheckbox(false),
         false,
         [], // No sub-choices
-        false // Not text-only
+        false, // Not text-only
+        'Analytics Cookies'
       );
       const marketingCategory = UIComponents.createAccordionCategory(
         'Marketing Cookies', 
@@ -1131,25 +1221,32 @@ const ContentExtractor = {
         createCheckbox(false),
         false,
         [], // No sub-choices
-        false // Not text-only
+        false, // Not text-only
+        'Marketing Cookies'
       );
       
       // Only append if they're not null (not text-only categories)
-      if (necessaryCategory) categoriesContainer.appendChild(necessaryCategory);
-      if (analyticsCategory) categoriesContainer.appendChild(analyticsCategory);
-      if (marketingCategory) categoriesContainer.appendChild(marketingCategory);
+      if (necessaryCategory) {
+        necessaryCategory.setAttribute('data-original-name', 'Necessary Cookies');
+        categoriesContainer.appendChild(necessaryCategory);
+      }
+      if (analyticsCategory) {
+        analyticsCategory.setAttribute('data-original-name', 'Analytics Cookies');
+        categoriesContainer.appendChild(analyticsCategory);
+      }
+      if (marketingCategory) {
+        marketingCategory.setAttribute('data-original-name', 'Marketing Cookies');
+        categoriesContainer.appendChild(marketingCategory);
+      }
     }
     
     cleanContainer.appendChild(categoriesContainer);
-    
-    // Hide the original customization page
-    customizationPage.style.display = 'none';
     
     return cleanContainer;
   },
   
   /**
-   * Extract category data from a category element
+   * Extract category data from a category element (for manual fallback)
    */
   extractCategoryData(category) {
     // Extract category name
@@ -1214,7 +1311,7 @@ const ContentExtractor = {
   },
   
   /**
-   * Extract category description from a category element
+   * Extract category description from a category element (for manual)
    */
   extractCategoryDescription(category) {
     // Try multiple selectors
@@ -1250,7 +1347,7 @@ const ContentExtractor = {
   },
   
   /**
-   * Get default description based on category name
+   * Get default description based on category name (for manual)
    */
   getDefaultDescription(categoryName) {
     const defaultDescriptions = {
@@ -1276,7 +1373,7 @@ const ContentExtractor = {
   },
   
   /**
-   * Extract subcategories from a category element
+   * Extract subcategories from a category element (for manual)
    */
   extractSubCategories(category) {
     const subChoices = [];
@@ -1341,7 +1438,7 @@ const ContentExtractor = {
   },
   
   /**
-   * Check if a category is always active
+   * Check if a category is always active (for manual)
    */
   isAlwaysActiveCategory(categoryElement, toggle, categoryName) {
     if (toggle && toggle.disabled && toggle.checked) {
@@ -1444,7 +1541,8 @@ const ContentExtractor = {
       createDisabledCheckbox(true),
       true,
       [], // No sub-choices
-      false // Not text-only
+      false, // Not text-only
+      'Strictly Necessary Cookies' // originalName
     );
     
     // Analytics category
@@ -1454,7 +1552,8 @@ const ContentExtractor = {
       createCheckbox(false),
       false,
       [], // No sub-choices
-      false // Not text-only
+      false, // Not text-only
+      'Analytics Cookies'
     );
     
     // Marketing category
@@ -1464,7 +1563,8 @@ const ContentExtractor = {
       createCheckbox(false),
       false,
       [], // No sub-choices
-      false // Not text-only
+      false, // Not text-only
+      'Targeting Cookies'
     );
     
     // Only append if they're not null (not text-only categories)
@@ -1481,9 +1581,10 @@ const ContentExtractor = {
 const UIComponents = {
   /**
    * Create accordion category for customization content
+   * Updated to accept originalName for data attribute and subChoices with originalName
    */
-  createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = [], isTextOnly = false) {
-    // Translate the category name
+  createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = [], isTextOnly = false, originalName = '') {
+    // Translate the category name (fallback if needed)
     const translatedName = translateCategoryName(categoryName);
     
     // Skip creating UI for text-only categories (descriptions without toggles)
@@ -1498,6 +1599,8 @@ const UIComponents = {
     categoryItem.style.borderRadius = '4px';
     categoryItem.style.marginBottom = '10px';
     categoryItem.style.overflow = 'hidden';
+    // Store original name for syncing
+    categoryItem.setAttribute('data-original-name', originalName || translatedName);
     
     // Category header (always visible)
     const header = document.createElement('div');
@@ -1553,27 +1656,29 @@ const UIComponents = {
     toggleContainer.style.display = 'flex';
     toggleContainer.style.alignItems = 'center';
     
-    const toggleClone = toggleElement.cloneNode(true);
-    toggleClone.style.cursor = 'pointer';
-    
-    // Disable toggle if always active
-    if (isAlwaysActive) {
-      toggleClone.disabled = true;
-      toggleClone.checked = true;
-    }
-    
-    // Add event listener for main category toggle
-    toggleClone.addEventListener('change', (e) => {
-      // Toggle all subcategories when main category is toggled
-      const subToggles = categoryItem.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
-      subToggles.forEach(subToggle => {
-        if (!subToggle.disabled) {
-          subToggle.checked = e.target.checked;
-        }
+    const toggleClone = toggleElement ? toggleElement.cloneNode(true) : null;
+    if (toggleClone) {
+      toggleClone.style.cursor = 'pointer';
+      
+      // Disable toggle if always active
+      if (isAlwaysActive) {
+        toggleClone.disabled = true;
+        toggleClone.checked = true;
+      }
+      
+      // Add event listener for main category toggle
+      toggleClone.addEventListener('change', (e) => {
+        // Toggle all subcategories when main category is toggled
+        const subToggles = categoryItem.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+        subToggles.forEach(subToggle => {
+          if (!subToggle.disabled) {
+            subToggle.checked = e.target.checked;
+          }
+        });
       });
-    });
-    
-    toggleContainer.appendChild(toggleClone);
+      
+      toggleContainer.appendChild(toggleClone);
+    }
     header.appendChild(toggleContainer);
     
     // Category description (hidden by default)
@@ -1586,7 +1691,7 @@ const UIComponents = {
     descriptionContainer.style.color = Styling.persian.color;
     descriptionContainer.style.lineHeight = Styling.persian.lineHeight;
     descriptionContainer.style.display = 'none';
-    descriptionContainer.innerHTML = description; // Use the original description
+    descriptionContainer.innerHTML = description; // Use the original/translated description
     
     // Sub-choices container (hidden by default)
     const subChoicesContainer = document.createElement('div');
@@ -1608,6 +1713,8 @@ const UIComponents = {
         subChoiceItem.style.padding = '8px';
         subChoiceItem.style.backgroundColor = '#f0f0f0';
         subChoiceItem.style.borderRadius = '4px';
+        // Store original sub name for syncing
+        subChoiceItem.setAttribute('data-original-name', subChoice.originalName || subChoice.name);
         
         const subChoiceHeader = document.createElement('div');
         subChoiceHeader.style.display = 'flex';
@@ -1620,7 +1727,7 @@ const UIComponents = {
         subChoiceName.style.color = Styling.persian.color;
         subChoiceName.style.fontFamily = Styling.persian.fontFamily;
         subChoiceName.style.fontSize = Styling.persian.fontSize;
-        // Keep original subcategory name without translation
+        // Keep original subcategory name without translation? No, use translated
         subChoiceName.textContent = subChoice.name;
         
         // Add "Always Active" badge for sub-choice if needed
@@ -1638,32 +1745,34 @@ const UIComponents = {
         }
         
         // Add subcategory toggle
-        const subChoiceToggle = subChoice.toggle.cloneNode(true);
-        subChoiceToggle.style.cursor = 'pointer';
-        
-        // Disable if always active
-        if (subChoice.isAlwaysActive) {
-          subChoiceToggle.disabled = true;
-          subChoiceToggle.checked = true;
+        const subChoiceToggle = subChoice.toggle ? subChoice.toggle.cloneNode(true) : null;
+        if (subChoiceToggle) {
+          subChoiceToggle.style.cursor = 'pointer';
+          
+          // Disable if always active
+          if (subChoice.isAlwaysActive) {
+            subChoiceToggle.disabled = true;
+            subChoiceToggle.checked = true;
+          }
+          
+          // Add event listener for subcategory toggle
+          subChoiceToggle.addEventListener('change', () => {
+            // Check if all non-disabled subcategories are checked
+            const allSubToggles = Array.from(subChoicesContainer.querySelectorAll('input[type="checkbox"]'))
+              .filter(toggle => !toggle.disabled);
+            const checkedSubToggles = allSubToggles.filter(toggle => toggle.checked);
+            
+            // Update main category toggle based on subcategory states
+            // Only update if not all subcategories are always active
+            const hasNonAlwaysActiveSubcategories = allSubToggles.length > 0;
+            if (hasNonAlwaysActiveSubcategories) {
+              toggleClone.checked = allSubToggles.length === checkedSubToggles.length;
+            }
+          });
         }
         
-        // Add event listener for subcategory toggle
-        subChoiceToggle.addEventListener('change', () => {
-          // Check if all non-disabled subcategories are checked
-          const allSubToggles = Array.from(subChoicesContainer.querySelectorAll('input[type="checkbox"]'))
-            .filter(toggle => !toggle.disabled);
-          const checkedSubToggles = allSubToggles.filter(toggle => toggle.checked);
-          
-          // Update main category toggle based on subcategory states
-          // Only update if not all subcategories are always active
-          const hasNonAlwaysActiveSubcategories = allSubToggles.length > 0;
-          if (hasNonAlwaysActiveSubcategories) {
-            toggleClone.checked = allSubToggles.length === checkedSubToggles.length;
-          }
-        });
-        
         subChoiceHeader.appendChild(subChoiceName);
-        subChoiceHeader.appendChild(subChoiceToggle);
+        if (subChoiceToggle) subChoiceHeader.appendChild(subChoiceToggle);
         
         // Add subcategory description
         const subChoiceDescription = document.createElement('div');
@@ -1683,7 +1792,7 @@ const UIComponents = {
     // Add click event to toggle description and sub-choices visibility
     header.addEventListener('click', (e) => {
       // Prevent toggle switch from triggering header click
-      if (e.target !== toggleClone) {
+      if (toggleClone && e.target !== toggleClone) {
         if (descriptionContainer.style.display === 'none') {
           descriptionContainer.style.display = 'block';
           subChoicesContainer.style.display = 'block';
@@ -1699,9 +1808,11 @@ const UIComponents = {
     });
     
     // Prevent toggle switch from bubbling up to header
-    toggleClone.addEventListener('click', (e) => {
-      e.stopPropagation();
-    });
+    if (toggleClone) {
+      toggleClone.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
     
     categoryItem.appendChild(header);
     categoryItem.appendChild(descriptionContainer);
@@ -2212,6 +2323,7 @@ const UIComponents = {
   
   /**
    * Handle accept selection button click
+   * Updated to use data-original-name for syncing
    */
   handleAcceptSelectionButton(banner) {
     log("[Cookie Simplifier] Accept Selection button clicked");
@@ -2223,18 +2335,19 @@ const UIComponents = {
         const categoryToggles = banner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
         
         categoryToggles.forEach(toggle => {
-          const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+          const categoryItem = toggle.closest('.cookie-category-item');
+          const originalName = categoryItem.getAttribute('data-original-name');
           
           // Find the corresponding category in the original customization page
           const originalCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
           
           originalCategories.forEach(originalCategory => {
             const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
-            if (originalTitle && originalTitle.textContent.trim() === categoryName) {
+            if (originalTitle && originalTitle.textContent.trim() === originalName) {
               const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
               if (originalToggle) {
                 originalToggle.checked = toggle.checked;
-                log(`[Cookie Simplifier] Synchronized toggle state for category: ${categoryName}`);
+                log(`[Cookie Simplifier] Synchronized toggle state for category: ${originalName}`);
               }
             }
           });
@@ -2246,18 +2359,18 @@ const UIComponents = {
         subCategoryToggles.forEach(toggle => {
           const subCategoryItem = toggle.closest('.cookie-sub-choices > div');
           if (subCategoryItem) {
-            const subCategoryName = subCategoryItem.querySelector('div > div:first-child').textContent;
+            const originalSubName = subCategoryItem.getAttribute('data-original-name');
             
             // Find the corresponding subcategory in the original customization page
             const originalSubCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
             
             originalSubCategories.forEach(originalSubCategory => {
               const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
-              if (originalTitle && originalTitle.textContent.trim() === subCategoryName) {
+              if (originalTitle && originalTitle.textContent.trim() === originalSubName) {
                 const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
                 if (originalToggle) {
                   originalToggle.checked = toggle.checked;
-                  log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${subCategoryName}`);
+                  log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${originalSubName}`);
                 }
               }
             });
@@ -2283,14 +2396,15 @@ const UIComponents = {
             // Add other categories based on user selection
             categoryToggles.forEach(toggle => {
               if (!toggle.disabled && toggle.checked) {
-                const categoryName = toggle.closest('.cookie-category-item').querySelector('.cookie-category-name').textContent;
+                const categoryItem = toggle.closest('.cookie-category-item');
+                const originalName = categoryItem.getAttribute('data-original-name');
                 
-                // Map category names to OneTrust group IDs
-                if (categoryName.includes('Analytics') || categoryName.includes('تحلیلی')) {
+                // Map category names to OneTrust group IDs (adjust based on common mappings)
+                if (originalName.includes('Analytics')) {
                   newGroupsValue += ',C0003:1';
-                } else if (categoryName.includes('Targeting') || categoryName.includes('Advertising') || categoryName.includes('تبلیغاتی')) {
+                } else if (originalName.includes('Targeting') || originalName.includes('Advertising')) {
                   newGroupsValue += ',C0004:1';
-                } else if (categoryName.includes('Functional') || categoryName.includes('Performance') || categoryName.includes('عملکردی')) {
+                } else if (originalName.includes('Functional') || originalName.includes('Performance')) {
                   newGroupsValue += ',C0002:1';
                 }
               }
@@ -2808,7 +2922,7 @@ const Initializer = {
     log("[Cookie Simplifier] Initializing extension");
     
     getSettings((settings) => {
-      if (!settings.enabled) {
+      if (settings.enabled === false) { // Strict check
         log("[Cookie Simplifier] Extension is disabled, skipping initialization");
         return;
       }
