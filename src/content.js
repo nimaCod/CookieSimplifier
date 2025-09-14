@@ -122,25 +122,6 @@ const Selectors = {
     '.ot-sdk-show-settings'
   ],
   
-  // Content selectors for extraction
-  content: [
-    '#onetrust-policy-text',
-    '#onetrust-policy-title',
-    '.ot-b-addl-desc',
-    '.banner-text',
-    '.cookie-message',
-    '.consent-message',
-    '.privacy-notice',
-    '.cookie-notice-text',
-    '[data-testid*="message"]',
-    '[data-consent*="message"]',
-    '.cmp-intro_intro',
-    '.cookie-consent__message',
-    '.banner-content',
-    '.consent-content',
-    '.message-component'
-  ],
-  
   // Customization page selectors
   customization: [
     '#onetrust-pc-sdk',
@@ -149,13 +130,7 @@ const Selectors = {
     '.consent-preferences',
     '.privacy-preferences',
     '[id*="preference-center"]',
-    '[class*="preference-center"]',
-    // GitLab specific
-    '.js-cookie-settings-modal',
-    '.modal-cookie-settings',
-    // Booking.com specific
-    '.bui-modal__content',
-    '[data-testid="cookie-preferences-modal"]'
+    '[class*="preference-center"]'
   ],
   
   // Save button selectors
@@ -175,13 +150,7 @@ const Selectors = {
     '.save-settings',
     '.save-consent',
     '.submit-preferences',
-    '.apply-preferences',
-    // GitLab specific
-    '.js-cookie-settings-save',
-    '.modal-footer .btn-primary',
-    // Booking.com specific
-    '[data-testid="cookie-preferences-save"]',
-    '.bui-button--primary'
+    '.apply-preferences'
   ],
   
   // Form selectors for POST requests
@@ -342,20 +311,11 @@ function isElementVisibleToUser(element) {
 /**
  * Create a checkbox element
  */
-function createCheckbox(checked) {
+function createCheckbox(checked, isDisabled = false) {
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.checked = checked;
-  return checkbox;
-}
-/**
- * Create a disabled checkbox element
- */
-function createDisabledCheckbox(checked) {
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.checked = checked;
-  checkbox.disabled = true;
+  checkbox.disabled = isDisabled;
   return checkbox;
 }
 /**
@@ -493,13 +453,7 @@ const BannerDetector = {
    */
   extractButtons(banner) {
     log("[Cookie Simplifier] Extracting buttons from banner...");
-    
-    // Check if it's a OneTrust banner
-    if (banner.id === 'onetrust-banner-sdk' || banner.id === 'onetrust-consent-sdk' || 
-        banner.classList.contains('onetrust-banner-sdk') || banner.querySelector('#onetrust-banner-sdk')) {
-      return this.extractOneTrustButtons(banner);
-    }
-    
+ 
     const buttons = [];
     
     try {
@@ -534,17 +488,8 @@ const BannerDetector = {
         const text = element.textContent.trim().toLowerCase().replace(/\s+/g, ' ');
         
         // Skip close buttons explicitly
-        if (text === '✕' || text.includes('close') || text.includes('dismiss') || element.closest('#onetrust-close-btn-container')) {
+        if (text === '✕' || text.includes('close') || text.includes('dismiss')) {
           log(`[Cookie Simplifier] Skipping close button with text: "${text}"`);
-          return;
-        }
-        
-        // Skip authentication buttons
-        if (text.includes('sign in') || text.includes('log in') || text.includes('login') || 
-            text.includes('sign up') || text.includes('signup') || text.includes('register') ||
-            text.includes('google') || text.includes('github') || text.includes('facebook') ||
-            text.includes('twitter') || text.includes('microsoft')) {
-          log(`[Cookie Simplifier] Skipping authentication button with text: "${text}"`);
           return;
         }
         
@@ -553,6 +498,7 @@ const BannerDetector = {
         // Check against button keywords
         let buttonType = null;
         for (const [type, keywords] of Object.entries(ButtonKeywords)) {
+          buttonType = null
           if (keywords.some(keyword => text.includes(keyword))) {
             buttonType = type;
             break;
@@ -604,16 +550,6 @@ const BannerDetector = {
         }
       });
       
-      // Add default button if none found
-      if (buttons.length === 0) {
-        log("[Cookie Simplifier] No buttons found, adding default action");
-        buttons.push({
-          type: 'accept',
-          element: { click: () => log("[Cookie Simplifier] Default accept action") },
-          text: 'Accept Necessary Cookies'
-        });
-      }
-      
       log(`[Cookie Simplifier] Extracted ${buttons.length} buttons:`, buttons.map(b => ({ type: b.type, text: b.text })));
       return buttons;
     } catch (error) {
@@ -623,55 +559,6 @@ const BannerDetector = {
         element: { click: () => log("[Cookie Simplifier] Default accept action due to error") },
         text: 'Accept Necessary Cookies'
       }];
-    }
-  },
-  
-  /**
-   * Extract buttons specifically from OneTrust banner
-   */
-  extractOneTrustButtons(banner) {
-    log("[Cookie Simplifier] Extracting OneTrust buttons...");
-    const buttons = [];
-    
-    try {
-      // Find the accept button
-      const acceptBtn = banner.querySelector('#onetrust-accept-btn-handler');
-      if (acceptBtn && isVisible(acceptBtn)) {
-        buttons.push({ 
-          type: 'accept', 
-          element: acceptBtn, 
-          text: acceptBtn.textContent.trim() || 'Accept All' 
-        });
-        log("[Cookie Simplifier] Found OneTrust ACCEPT button");
-      }
-      
-      // Find the reject button
-      const rejectBtn = banner.querySelector('#onetrust-reject-all-handler');
-      if (rejectBtn && isVisible(rejectBtn)) {
-        buttons.push({ 
-          type: 'reject', 
-          element: rejectBtn, 
-          text: rejectBtn.textContent.trim() || 'Reject All' 
-        });
-        log("[Cookie Simplifier] Found OneTrust REJECT button");
-      }
-      
-      // Find the customize button
-      const customizeBtn = banner.querySelector('#onetrust-pc-btn-handler');
-      if (customizeBtn && isVisible(customizeBtn)) {
-        buttons.push({ 
-          type: 'customize', 
-          element: customizeBtn, 
-          text: customizeBtn.textContent.trim() || 'Customize Settings' 
-        });
-        log("[Cookie Simplifier] Found OneTrust CUSTOMIZE button");
-      }
-      
-      log(`[Cookie Simplifier] Extracted ${buttons.length} OneTrust buttons`);
-      return buttons;
-    } catch (error) {
-      log(`[Cookie Simplifier] Error extracting OneTrust buttons: ${error.message}`);
-      return [];
     }
   }
 };
@@ -690,40 +577,13 @@ const ContentExtractor = {
       const contentContainer = document.createElement('div');
       contentContainer.className = 'extracted-content black-text';
       
-      // Try to find content sections
-      let foundContent = false;
-      const addedSections = new Set(); // Track which sections we've already added
+      const bannerClone = banner.cloneNode(true);
+      contentContainer.appendChild(bannerClone);
+      log("[Cookie Simplifier] Added cloned banner");
       
-      for (const selector of Selectors.content) {
-        const contentElement = banner.querySelector(selector);
-        if (contentElement && !addedSections.has(contentElement)) {
-          const contentClone = contentElement.cloneNode(true);
-          contentContainer.appendChild(contentClone);
-          addedSections.add(contentElement);
-          foundContent = true;
-          log(`[Cookie Simplifier] Added content using selector: ${selector}`);
-        }
-      }
-      
-      // If no specific content found, clone the entire banner (excluding buttons)
-      if (!foundContent) {
-        const bannerClone = banner.cloneNode(true);
-        contentContainer.appendChild(bannerClone);
-        log("[Cookie Simplifier] Added cloned banner");
-      }
-      
-      // Make all text elements black
-      const textElements = contentContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, li, td, th');
-      textElements.forEach(element => {
-        element.style.color = '#000000';
-        element.style.bottom = null;
-      });
-      
-      log(`[Cookie Simplifier] Extracted banner content with ${contentContainer.children.length} sections`);
       return contentContainer;
     } catch (error) {
       log(`[Cookie Simplifier] Error extracting banner content: ${error.message}`);
-      return this.createFallbackContent();
     }
   },
   
@@ -734,86 +594,11 @@ const ContentExtractor = {
     log("[Cookie Simplifier] Extracting customization page content...");
     
     try {
-      // First, check if customization page is already visible
-      let customizationPage = null;
-      
-      // Try to find OneTrust preference center
-      const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
-      if (oneTrustPC && isElementVisibleToUser(oneTrustPC)) {
-        customizationPage = oneTrustPC;
-        log("[Cookie Simplifier] Found OneTrust preference center already visible");
-      }
-      
-      // If not found, try other selectors
-      if (!customizationPage) {
-        for (const selector of Selectors.customization) {
-          const element = document.querySelector(selector);
-          if (element && isElementVisibleToUser(element)) {
-            customizationPage = element;
-            log(`[Cookie Simplifier] Found customization page with selector: ${selector}`);
-            break;
-          }
-        }
-      }
-      
-      // If still not found, trigger the customize button and wait for the page to appear
-      if (!customizationPage) {
-        return await this.triggerCustomizationPage(banner);
-      }
-      
-      if (customizationPage) {
-        // Store reference to original customization page
-        ExtensionState.originalCustomizationPage = customizationPage;
-        
-        // Extract form data for POST submission
-        this.extractFormData(customizationPage);
-        
-        // Hide any overlays that might be causing the black screen
-        OverlayManager.hideOverlays();
-        
-        // Process the customization page (now async)
-        return await this.processCustomizationPage(customizationPage);
-      }
-      
-      log("[Cookie Simplifier] No customization page found");
-      return null;
+      return await this.triggerCustomizationPage(banner);
+ 
     } catch (error) {
       log(`[Cookie Simplifier] Error extracting customization content: ${error.message}`);
       return null;
-    }
-  },
-  
-  /**
-   * Extract form data for POST submission
-   */
-  extractFormData(customizationPage) {
-    try {
-      // Find the form element
-      let form = null;
-      for (const selector of Selectors.forms) {
-        form = customizationPage.querySelector(selector);
-        if (form) {
-          log(`[Cookie Simplifier] Found form with selector: ${selector}`);
-          break;
-        }
-      }
-      
-      if (form) {
-        // Create FormData object
-        const formData = new FormData(form);
-        
-        // Store form data and action URL
-        ExtensionState.formSubmissionData = {
-          formData: formData,
-          actionUrl: form.action || window.location.href
-        };
-        
-        log("[Cookie Simplifier] Form data extracted for POST submission");
-      } else {
-        log("[Cookie Simplifier] No form found in customization page");
-      }
-    } catch (error) {
-      log(`[Cookie Simplifier] Error extracting form data: ${error.message}`);
     }
   },
   
@@ -836,7 +621,6 @@ const ContentExtractor = {
       
       // Store original banner position to restore it later
       const originalBannerPosition = banner.style.position;
-      const originalBannerZIndex = banner.style.zIndex;
       
       // Temporarily hide the banner to avoid interference
       banner.style.position = 'absolute';
@@ -859,24 +643,6 @@ const ContentExtractor = {
         const checkInterval = setInterval(() => {
           let foundPage = null;
           
-          // Check for OneTrust preference center
-          const oneTrustPC = document.querySelector('#onetrust-pc-sdk');
-          if (oneTrustPC && isElementVisibleToUser(oneTrustPC)) {
-            foundPage = oneTrustPC;
-          }
-          
-          // Check other selectors if OneTrust not found
-          if (!foundPage) {
-            for (const selector of Selectors.customization) {
-              const element = document.querySelector(selector);
-              if (element && isElementVisibleToUser(element)) {
-                foundPage = element;
-                break;
-              }
-            }
-          }
-          
-          // Also check for any element that might contain cookie preferences
           if (!foundPage) {
             const allElements = document.querySelectorAll('*');
             for (const element of allElements) {
@@ -899,9 +665,6 @@ const ContentExtractor = {
             
             // Store reference to original customization page
             ExtensionState.originalCustomizationPage = foundPage;
-            
-            // Extract form data for POST submission
-            this.extractFormData(foundPage);
             
             // Restore original banner position
             banner.style.position = originalBannerPosition;
@@ -949,11 +712,9 @@ const ContentExtractor = {
     
     // Hide the original customization page
     customizationPage.style.display = 'none';
-
     try {
       const html = customizationPage.outerHTML;
       log("[Cookie Simplifier] Sending customization HTML to LLM for processing");
-
       return new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
           action: "processCustomization",
@@ -968,45 +729,36 @@ const ContentExtractor = {
             resolve(fallbackContainer);
           } else {
             log("[Cookie Simplifier] Received processed categories from LLM");
-
             // Create categories container
             const categoriesContainer = document.createElement('div');
             categoriesContainer.style.marginTop = '20px';
-
             response.categories.forEach(cat => {
               let toggle = null;
               if (!cat.isTextOnly) {
-                if (cat.isDisabled) {
-                  toggle = createDisabledCheckbox(cat.isChecked);
-                } else {
-                  toggle = createCheckbox(cat.isChecked);
-                }
+                toggle = createCheckbox(cat.isChecked,cat.isDisabled);
               }
-
               const accordionCategory = UIComponents.createAccordionCategory(
                 cat.translatedName,
                 cat.description,
                 toggle,
-                (cat.isDisabled && cat.isChecked), // isAlwaysActive
+                cat.isAlwaysEnabled,
                 cat.subChoices.map(sub => ({
                   name: sub.translatedName,
                   description: sub.description,
-                  toggle: sub.isTextOnly ? null : (sub.isDisabled ? createDisabledCheckbox(sub.isChecked) : createCheckbox(sub.isChecked)),
-                  isAlwaysActive: (sub.isDisabled && sub.isChecked),
+                  toggle: sub.isTextOnly ? null : (sub.isDisabled ? createCheckbox(sub.isChecked,true) : createCheckbox(sub.isChecked)),
+                  isAlwaysActive: sub.isAlwaysEnabled,
                   isTextOnly: sub.isTextOnly,
                   originalName: sub.originalName // Pass for data attribute
                 })),
                 cat.isTextOnly,
                 cat.originalName // Pass originalName for data attribute
               );
-
               if (accordionCategory) {
                 // Store original name for syncing
                 accordionCategory.setAttribute('data-original-name', cat.originalName);
                 categoriesContainer.appendChild(accordionCategory);
               }
             });
-
             cleanContainer.appendChild(categoriesContainer);
             resolve(cleanContainer);
           }
@@ -1018,7 +770,6 @@ const ContentExtractor = {
       return fallbackContainer;
     }
   },
-
   /**
    * Manual processing (original logic as fallback)
    */
@@ -1200,7 +951,7 @@ const ContentExtractor = {
       const necessaryCategory = UIComponents.createAccordionCategory(
         'Necessary Cookies', 
         'These cookies are essential for the website to function and cannot be switched off in our systems.',
-        createDisabledCheckbox(true),
+        createCheckbox(true,true),
         true,
         [], // No sub-choices
         false, // Not text-only
@@ -1511,68 +1262,6 @@ const ContentExtractor = {
     }
     
     return false;
-  },
-  
-  /**
-   * Create fallback content if extraction fails
-   */
-  createFallbackContent() {
-    const fallback = document.createElement('div');
-    fallback.className = 'extracted-content black-text';
-    fallback.innerHTML = '<p>This website uses cookies to enhance your experience. By continuing to use this site, you accept our use of cookies.</p>';
-    return fallback;
-  },
-  
-  /**
-   * Create fallback customization content
-   */
-  createFallbackCustomizationContent() {
-    const fallback = document.createElement('div');
-    fallback.className = 'customization-content black-text rtl-text';
-    fallback.style.color = '#000000';
-    fallback.style.backgroundColor = '#ffffff';
-    fallback.style.padding = '15px';
-    fallback.setAttribute('dir', 'rtl');
-    
-    // Necessary category (Always Active)
-    const necessaryCategory = UIComponents.createAccordionCategory(
-      'Strictly Necessary Cookies', 
-      'این کوکی‌ها برای عملکرد وب‌سایت ضروری هستند و نمی‌توان آنها را غیرفعال کرد.',
-      createDisabledCheckbox(true),
-      true,
-      [], // No sub-choices
-      false, // Not text-only
-      'Strictly Necessary Cookies' // originalName
-    );
-    
-    // Analytics category
-    const analyticsCategory = UIComponents.createAccordionCategory(
-      'Analytics Cookies', 
-      'این کوکی‌ها به ما اجازه می‌دهند بازدیدها و منابع ترافیک را بشماریم تا بتوانیم عملکرد سایت خود را اندازه‌گیری و بهبود بخشیم.',
-      createCheckbox(false),
-      false,
-      [], // No sub-choices
-      false, // Not text-only
-      'Analytics Cookies'
-    );
-    
-    // Marketing category
-    const marketingCategory = UIComponents.createAccordionCategory(
-      'Targeting Cookies', 
-      'این کوکی‌ها ممکن است از طریق سایت ما توسط شرکای تبلیغاتی ما تنظیم شوند.',
-      createCheckbox(false),
-      false,
-      [], // No sub-choices
-      false, // Not text-only
-      'Targeting Cookies'
-    );
-    
-    // Only append if they're not null (not text-only categories)
-    if (necessaryCategory) fallback.appendChild(necessaryCategory);
-    if (analyticsCategory) fallback.appendChild(analyticsCategory);
-    if (marketingCategory) fallback.appendChild(marketingCategory);
-    
-    return fallback;
   }
 };
 // ========================
@@ -1588,9 +1277,9 @@ const UIComponents = {
     const translatedName = translateCategoryName(categoryName);
     
     // Skip creating UI for text-only categories (descriptions without toggles)
-    if (isTextOnly) {
-      return null;
-    }
+    // if (isTextOnly) {
+    //   return null;
+    // }
     
     const categoryItem = document.createElement('div');
     categoryItem.className = 'cookie-category-item';
@@ -1842,7 +1531,7 @@ const UIComponents = {
       newBanner.id = 'simplified-cookie-banner';
       newBanner.setAttribute('role', 'dialog');
       newBanner.setAttribute('aria-label', Translations.banner.title);
-      newBanner.setAttribute('dir', 'rtl'); // Set RTL direction for the entire banner
+      newBanner.setAttribute('dir', 'rtl');
       
       // Position the banner in the center of the page
       newBanner.style.position = 'fixed';
@@ -1930,7 +1619,7 @@ const UIComponents = {
       header.style.justifyContent = 'space-between';
       header.style.alignItems = 'center';
       
-      // Title - Use Persian text
+      // Title
       const title = document.createElement('h3');
       title.textContent = Translations.banner.title;
       title.setAttribute('dir', 'rtl');
@@ -1973,24 +1662,6 @@ const UIComponents = {
         }, 1000);
       });
       
-      // Add keyboard support for close button
-      closeBtn.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          log("[Cookie Simplifier] Keyboard closed simplified banner");
-          
-          // Set closing flag to prevent banner reprocessing
-          ExtensionState.isClosing = true;
-          
-          // Remove our simplified banner
-          newBanner.remove();
-          
-          // Reset closing flag after a short delay
-          setTimeout(() => {
-            ExtensionState.isClosing = false;
-          }, 1000);
-        }
-      });
-      
       header.appendChild(closeBtn);
       newBanner.appendChild(header);
       
@@ -2020,36 +1691,19 @@ const UIComponents = {
       contentContainer.appendChild(separator);
       
       // Add the prefetched customization content if it exists
-      if (customizationContent) {
-        // Remove any headings from the customization content
-        const headings = customizationContent.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        headings.forEach(heading => {
-          // Only remove headings that are not part of a category
-          if (!heading.closest('.cookie-category-item')) {
-            heading.remove();
-          }
-        });
-        
-        // Remove "About Your Privacy" text if present
-        const aboutPrivacyElements = customizationContent.querySelectorAll('*');
-        aboutPrivacyElements.forEach(element => {
-          if (element.textContent.includes('About Your Privacy')) {
-            element.remove();
-          }
-        });
-        
+      if (customizationContent) {    
         contentContainer.appendChild(customizationContent);
       }
       
       newBanner.appendChild(contentContainer);
       
-      // Button container (always at the bottom)
+      // Button container
       const buttonContainer = document.createElement('div');
       buttonContainer.style.display = 'flex';
       buttonContainer.style.flexDirection = 'column';
       buttonContainer.style.gap = '10px';
       buttonContainer.style.padding = '0 20px 20px 20px';
-      buttonContainer.style.backgroundColor = '#ffffff'; // Ensure white background
+      buttonContainer.style.backgroundColor = '#ffffff';
       
       // Create a reference to the banner for use in button handlers
       const bannerRef = newBanner;
@@ -2508,33 +2162,6 @@ const BannerManager = {
         banner.parentNode.removeChild(banner);
         log("[Cookie Simplifier] Banner completely removed from DOM");
       }
-      
-      // Also remove any OneTrust-specific elements
-      const oneTrustElements = [
-        { selector: '.onetrust-pc-dark-filter', name: 'OneTrust overlay' },
-        { selector: '#onetrust-consent-sdk', name: 'OneTrust container' }
-      ];
-      
-      oneTrustElements.forEach(({ selector, name }) => {
-        const element = document.querySelector(selector);
-        if (element) {
-          const elementInfo = {
-            element: element,
-            originalDisplay: element.style.display || '',
-            className: element.className,
-            id: element.id,
-            style: element.getAttribute('style'),
-            parent: element.parentNode,
-            nextSibling: element.nextSibling
-          };
-          ExtensionState.originalBanners.set(element, elementInfo);
-          
-          if (element.parentNode) {
-            element.parentNode.removeChild(element);
-            log(`[Cookie Simplifier] Removed ${name} from DOM`);
-          }
-        }
-      });
     } catch (error) {
       log(`[Cookie Simplifier] Error removing banner: ${error.message}`);
     }
@@ -2840,12 +2467,6 @@ const ObserverManager = {
         return;
       }
       
-      // Additional check to ensure the banner is actually visible to the user
-      if (!isElementVisibleToUser(banner)) {
-        log("[Cookie Simplifier] Banner is not visible to user, skipping");
-        return;
-      }
-      
       const bannerContent = ContentExtractor.extractBannerContent(banner);
       const buttons = BannerDetector.extractButtons(banner);
       
@@ -2876,7 +2497,6 @@ const ObserverManager = {
         }
       } catch (error) {
         log(`[Cookie Simplifier] Error prefetching customization content: ${error.message}`);
-        // Don't use fallback as requested
         customizationContent = null;
       }
       
@@ -2889,15 +2509,6 @@ const ObserverManager = {
         document.body.appendChild(simplifiedBanner);
         log("[Cookie Simplifier] Simplified banner added to page");
         
-        // Check for banner reinsertion after a delay
-        setTimeout(() => {
-          // Check if the original banner was reinserted
-          const reinsertedBanner = document.querySelector('#onetrust-banner-sdk, .ot-sdk-container');
-          if (reinsertedBanner && !ExtensionState.isProcessing && !ExtensionState.isClosing) {
-            log("[Cookie Simplifier] Detected banner reinsertion, removing it again");
-            BannerManager.hideBanner(reinsertedBanner);
-          }
-        }, 2000);
       } else {
         log("[Cookie Simplifier] Failed to create simplified banner");
       }
@@ -2922,14 +2533,13 @@ const Initializer = {
     log("[Cookie Simplifier] Initializing extension");
     
     getSettings((settings) => {
-      if (settings.enabled === false) { // Strict check
+      if (settings.enabled === false) {
         log("[Cookie Simplifier] Extension is disabled, skipping initialization");
         return;
       }
       
       if (document.readyState === 'complete') {
         log("[Cookie Simplifier] Document already loaded");
-        // Add a delay to ensure banners are loaded
         setTimeout(() => {
           ObserverManager.handleCookieBanners();
           ObserverManager.setupObserver();
@@ -2938,7 +2548,6 @@ const Initializer = {
         log("[Cookie Simplifier] Waiting for document to load");
         window.addEventListener('load', () => {
           log("[Cookie Simplifier] Document loaded");
-          // Add a delay to ensure banners are loaded
           setTimeout(() => {
             ObserverManager.handleCookieBanners();
             ObserverManager.setupObserver();

@@ -175,7 +175,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const translationsStr = JSON.stringify(message.translations);
 
     const prompt = `
-You are an expert in parsing and restructuring cookie preference HTML.
+You are an expert in parsing and restructuring cookie preference HTML. And you read given data so carefully and analyze it as a human interacting with a website do.
 
 Given this HTML (which may include CSS and JS):
 ${message.html}
@@ -190,12 +190,13 @@ ${message.html}
    - Translate it to Persian.
    - summarize description concisely while keeping key information.
 4. For each category/subcategory:
+   - asked boolean values must be answered with a yes or no, there should not be null for them.
    - Determine if it has a toggle (checkbox or radio). If not, set isTextOnly: true.
    - If it has a toggle, extract:
      - isChecked: true if checked, false otherwise, null if no toggle.
      - isDisabled: true if disabled, false otherwise, null if no toggle.
    - If no toggle or it's a descriptive section only, mark as isTextOnly: true.
-   - Always-enabled: Typically if isDisabled && isChecked, or text indicators like "always active", "necessary", "cannot be disabled".
+   - Always-enabled: Typically if isDisabled or it has text indicators like "always active", "necessary", "cannot be disabled".
 5. Ignore non-category elements like headers, footers, or save buttons.
 6. Return ONLY the following JSON structure (no additional text):
 
@@ -208,6 +209,7 @@ ${message.html}
       "isChecked": true/false/null,
       "isDisabled": true/false/null,
       "isTextOnly": true/false,
+      "isAlwaysEnabled": true/false,
       "subChoices": [
         {
           "originalName": "Original sub name",
@@ -215,7 +217,8 @@ ${message.html}
           "description": "Translated sub desc",
           "isChecked": true/false/null,
           "isDisabled": true/false/null,
-          "isTextOnly": true/false
+          "isTextOnly": true/false,
+          "isAlwaysEnabled": true/false
         }
       ]
     }
