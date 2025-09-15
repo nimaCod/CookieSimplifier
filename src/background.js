@@ -173,9 +173,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       key: p.key
     })));
     const translationsStr = JSON.stringify(message.translations);
-
-    const prompt = `
-You are an expert in parsing and restructuring cookie preference HTML. And you read given data so carefully and analyze it as a human interacting with a website do.
+    
+  const prompt = `
+You are an expert in parsing and restructuring cookie preference HTML. Analyze the given data carefully as a human interacting with a website would.
 
 Given this HTML (which may include CSS and JS):
 ${message.html}
@@ -188,26 +188,32 @@ ${message.html}
 3. For descriptions:
    - Extract the description text.
    - Translate it to Persian.
-   - summarize description concisely while keeping key information.
+   - Summarize description concisely while keeping key information.
 4. For each category/subcategory:
-   - asked boolean values must be answered with a yes or no, there should not be null for them.
+   - Boolean values must be answered with true or false, not null.
    - Determine if it has a toggle (checkbox or radio). If not, set isTextOnly: true.
    - If it has a toggle, extract:
-     - isChecked: true if checked, false otherwise, null if no toggle.
-     - isDisabled: true if disabled, false otherwise, null if no toggle.
+     - isChecked: true if checked, false otherwise.
+     - isDisabled: true if disabled, false otherwise.
+     - toggleId: the id attribute of the input if present, otherwise null.
+     - toggleName: the name attribute if present, otherwise null.
+     - toggleValue: the value attribute if present, otherwise null.
    - If no toggle or it's a descriptive section only, mark as isTextOnly: true.
    - Always-enabled: Typically if isDisabled or it has text indicators like "always active", "necessary", "cannot be disabled".
 5. Ignore non-category elements like headers, footers, or save buttons.
-6. Return ONLY the following JSON structure (no additional text):
 
+IMPORTANT: Return ONLY the following JSON structure with no additional text, explanations, or markdown formatting:
 {
   "categories": [
     {
       "originalName": "Original English name",
       "translatedName": "Translated Persian name",
       "description": "Translated and summarized Persian description",
-      "isChecked": true/false/null,
-      "isDisabled": true/false/null,
+      "isChecked": true/false,
+      "isDisabled": true/false,
+      "toggleId": "id" or null,
+      "toggleName": "name" or null,
+      "toggleValue": "value" or null,
       "isTextOnly": true/false,
       "isAlwaysEnabled": true/false,
       "subChoices": [
@@ -215,8 +221,11 @@ ${message.html}
           "originalName": "Original sub name",
           "translatedName": "Translated sub name",
           "description": "Translated sub desc",
-          "isChecked": true/false/null,
-          "isDisabled": true/false/null,
+          "isChecked": true/false,
+          "isDisabled": true/false,
+          "toggleId": "id" or null,
+          "toggleName": "name" or null,
+          "toggleValue": "value" or null,
           "isTextOnly": true/false,
           "isAlwaysEnabled": true/false
         }
@@ -225,54 +234,81 @@ ${message.html}
   ]
 }
 `;
-
-    fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful assistant that parses, translates, and structures cookie preference HTML into JSON."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 2000
-      })
-    })
-    .then(response => {
-      if (!response.ok) {
-        return response.text().then(text => { throw new Error(`API failed: ${text}`); });
-      }
-      return response.json();
-    })
-    .then(data => {
-      if (data.choices && data.choices.length > 0) {
-        const content = data.choices[0].message.content;
-        try {
-          const parsed = JSON.parse(content);
-          sendResponse(parsed);
-        } catch (e) {
-          sendResponse({ error: "Failed to parse JSON from LLM" });
+  
+  fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant that parses, translates, and structures cookie preference HTML into JSON. Return only valid JSON with no additional text."
+        },
+        {
+          role: "user",
+          content: prompt
         }
-      } else {
-        sendResponse({ error: "No response from LLM" });
-      }
+      ],
+      temperature: 0.2, 
+      max_tokens: 3000
     })
-    .catch(error => {
-      console.error("[Cookie Simplifier] LLM error:", error);
-      sendResponse({ error: error.message });
-    });
-
-    return true; // Async response
-  }
+  })
+  .then(response => {
+    if (!response.ok) {
+      return response.text().then(text => { 
+        console.error("[Cookie Simplifier] Background script: API error:", text);
+        throw new Error(`API failed: ${text}`); 
+      });
+    }
+    return response.json();
+  })
+  .then(data => {
+    if (data.choices && data.choices.length > 0) {
+      let content = data.choices[0].message.content;
+      console.log("[Cookie Simplifier] Background script: Raw LLM response:", content);
+      
+      // Clean the response before parsing
+      content = content.trim();
+      
+      // Remove any markdown code block formatting if present
+      if (content.startsWith('```json')) {
+        content = content.substring(7);
+      }
+      if (content.endsWith('```')) {
+        content = content.substring(0, content.length - 3);
+      }
+      
+      // Try to find JSON object boundaries in case there's extra text
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+      
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        content = content.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      try {
+        const parsed = JSON.parse(content);
+        console.log("[Cookie Simplifier] Background script: Successfully parsed JSON");
+        sendResponse(parsed);
+      } catch (e) {
+        console.error("[Cookie Simplifier] Background script: JSON parse error:", e);
+        console.error("[Cookie Simplifier] Background script: Content that failed to parse:", content);
+        sendResponse({ error: "Failed to parse JSON from LLM" });
+      }
+    } else {
+      console.error("[Cookie Simplifier] Background script: No choices in LLM response");
+      sendResponse({ error: "No response from LLM" });
+    }
+  })
+  .catch(error => {
+    console.error("[Cookie Simplifier] Background script: LLM error:", error);
+    sendResponse({ error: error.message });
+  });
+  return true; // Async response
+}
   
 });

@@ -13,7 +13,9 @@ const ExtensionState = {
   originalCustomizationPage: null,
   originalBanner: null,
   isClosing: false,
-  formSubmissionData: null
+  formSubmissionData: null,
+  customizationRequestData: null,
+  originalCustomizeButton: null
 };
 // ========================
 // CONSTANTS AND SELECTORS
@@ -29,6 +31,7 @@ const Selectors = {
     '#ot-sdk-container',
     '.ot-sdk-container',
     '.ot-sdk-row',
+    '#trustarc-banner-content',
     '[id*="onetrust"]',
     '[class*="onetrust"]',
     '[id*="ot-sdk"]',
@@ -130,7 +133,13 @@ const Selectors = {
     '.consent-preferences',
     '.privacy-preferences',
     '[id*="preference-center"]',
-    '[class*="preference-center"]'
+    '[class*="preference-center"]',
+    '[id*="cookie-settings"]',
+    '[class*="cookie-settings"]',
+    '[id*="privacy-settings"]',
+    '[class*="privacy-settings"]',
+    '[id*="consent-settings"]',
+    '[class*="consent-settings"]'
   ],
   
   // Save button selectors
@@ -150,7 +159,9 @@ const Selectors = {
     '.save-settings',
     '.save-consent',
     '.submit-preferences',
-    '.apply-preferences'
+    '.apply-preferences',
+    '[class*="save"]',
+    '[id*="save"]'
   ],
   
   // Form selectors for POST requests
@@ -162,7 +173,8 @@ const Selectors = {
     '.ot-pc-content form',
     '#onetrust-pc-sdk form',
     '.cookie-preferences form',
-    '.consent-preferences form'
+    '.consent-preferences form',
+    'form'
   ]
 };
 // Combined selectors for convenience
@@ -220,7 +232,7 @@ const CategoryPatterns = [
 const ButtonKeywords = {
   accept: ['accept', 'agree', 'allow', 'ok', 'confirm', 'got it', 'understand', 'continue', 'yes', 'submit', 'allow all', 'accept all', 'i agree', 'i accept'],
   reject: ['reject', 'decline', 'deny', 'disagree', 'no thanks', 'opt out', 'refuse', 'no', 'reject all', 'decline all', 'deny all'],
-  customize: ['customize', 'settings', 'preferences', 'manage', 'options', 'configure', 'more info', 'learn more', 'details', 'cookie settings', 'privacy settings', 'manage preferences', 'privacy options']
+  customize: ['customize', 'settings', 'preferences', 'manage', 'options', 'configure', 'more info', 'learn more', 'details', 'cookie settings', 'privacy settings', 'manage preferences', 'privacy options', 'cookie preferences', 'privacy preferences']
 };
 // sign-in dialog based on content
 const authKeywords = [
@@ -358,6 +370,146 @@ function submitFormData(formData, actionUrl) {
     return false;
   }
 }
+/**
+ * Capture form data from a form element
+ */
+function captureFormData(form) {
+  try {
+    const formData = new FormData(form);
+    const actionUrl = form.action || window.location.href;
+    
+    log(`[Cookie Simplifier] Captured form data from form with action: ${actionUrl}`);
+    
+    // Convert FormData to a plain object for easier manipulation
+    const formDataObj = {};
+    for (const [key, value] of formData.entries()) {
+      formDataObj[key] = value;
+    }
+    
+    return {
+      formData: formData,
+      formDataObj: formDataObj,
+      actionUrl: actionUrl,
+      method: form.method || 'POST'
+    };
+  } catch (error) {
+    log(`[Cookie Simplifier] Error capturing form data: ${error.message}`);
+    return null;
+  }
+}
+/**
+ * Capture request data from a button click
+ */
+function captureRequestData(button) {
+  try {
+    // Check if the button is part of a form
+    const form = button.closest('form');
+    if (form) {
+      return captureFormData(form);
+    }
+    
+    // If not part of a form, try to capture any onclick handlers
+    const onclick = button.getAttribute('onclick');
+    if (onclick) {
+      log(`[Cookie Simplifier] Found onclick handler: ${onclick}`);
+      
+      // Try to extract URL from onclick
+      const urlMatch = onclick.match(/['"`]([^'"`]*?)['"`]/g);
+      if (urlMatch && urlMatch.length > 0) {
+        const url = urlMatch[0].replace(/['"`]/g, '');
+        log(`[Cookie Simplifier] Extracted URL from onclick: ${url}`);
+        
+        return {
+          url: url,
+          method: 'GET',
+          isOnclick: true,
+          onclickHandler: onclick
+        };
+      }
+    }
+    
+    // Check for data attributes that might contain request info
+    const dataUrl = button.getAttribute('data-url') || 
+                   button.getAttribute('data-action') || 
+                   button.getAttribute('data-href');
+    
+    if (dataUrl) {
+      log(`[Cookie Simplifier] Found data URL: ${dataUrl}`);
+      return {
+        url: dataUrl,
+        method: 'GET',
+        isDataAttr: true
+      };
+    }
+    
+    // Check for href attribute (if it's a link styled as a button)
+    const href = button.getAttribute('href');
+    if (href && href !== '#') {
+      log(`[Cookie Simplifier] Found href: ${href}`);
+      return {
+        url: href,
+        method: 'GET',
+        isHref: true
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    log(`[Cookie Simplifier] Error capturing request data: ${error.message}`);
+    return null;
+  }
+}
+/**
+ * Send a request based on captured data
+ */
+function sendCapturedRequest(requestData, updatedData = {}) {
+  try {
+    if (!requestData) {
+      log("[Cookie Simplifier] No request data to send");
+      return false;
+    }
+    
+    if (requestData.formData) {
+      // Handle form submission
+      const newFormData = new FormData();
+      
+      // Copy original form data
+      for (const [key, value] of requestData.formData.entries()) {
+        newFormData.append(key, value);
+      }
+      
+      // Update with new data
+      for (const [key, value] of Object.entries(updatedData)) {
+        newFormData.set(key, value);
+      }
+      
+      return submitFormData(newFormData, requestData.actionUrl);
+    } else if (requestData.url) {
+      // Handle URL-based request
+      const url = new URL(requestData.url, window.location.origin);
+      
+      // Add/update query parameters
+      for (const [key, value] of Object.entries(updatedData)) {
+        url.searchParams.set(key, value);
+      }
+      
+      // Navigate to the URL
+      window.location.href = url.toString();
+      return true;
+    } else if (requestData.onclickHandler) {
+      // Execute the onclick handler with updated data
+      // This is a simplified approach - in a real scenario, you might need to parse and modify the handler
+      log("[Cookie Simplifier] Executing onclick handler");
+      eval(requestData.onclickHandler);
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    log(`[Cookie Simplifier] Error sending captured request: ${error.message}`);
+    return false;
+  }
+}
 // ========================
 // BANNER DETECTION MODULE
 // ========================
@@ -449,7 +601,7 @@ const BannerDetector = {
   },
   
   /**
-   * Extract buttons from banner
+   * Extract buttons from banner with improved logic
    */
   extractButtons(banner) {
     log("[Cookie Simplifier] Extracting buttons from banner...");
@@ -483,6 +635,7 @@ const BannerDetector = {
       
       log(`[Cookie Simplifier] Found ${clickableElements.length} clickable elements`);
       
+      // Process each clickable element
       clickableElements.forEach(element => {
         // Normalize the text by removing extra spaces and converting to lowercase
         const text = element.textContent.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -495,62 +648,129 @@ const BannerDetector = {
         
         log(`[Cookie Simplifier] Processing button with text: "${text}"`);
         
-        // Check against button keywords
+        // Determine button type with improved scoring system
         let buttonType = null;
-        for (const [type, keywords] of Object.entries(ButtonKeywords)) {
-          buttonType = null
-          if (keywords.some(keyword => text.includes(keyword))) {
-            buttonType = type;
-            break;
-          }
-        }
+        let maxScore = 0;
         
-        // If no match by text, try to match by attributes
-        if (!buttonType) {
+        // Check against button keywords with scoring
+        for (const [type, keywords] of Object.entries(ButtonKeywords)) {
+          let score = 0;
+          
+          // Check for exact matches
+          if (keywords.includes(text)) {
+            score += 10; // Highest score for exact match
+          }
+          
+          // Check for partial matches
+          for (const keyword of keywords) {
+            if (text.includes(keyword)) {
+              score += 5; // Medium score for partial match
+              
+              // Additional score for longer keywords (more specific)
+              if (keyword.length > 5) {
+                score += 2;
+              }
+            }
+          }
+          
+          // Check for attributes
           const attributes = element.getAttributeNames();
           const attributeValues = attributes.map(attr => element.getAttribute(attr).toLowerCase());
           
-          // Check for accept-related attributes
-          if (attributes.some(attr => attr.includes('accept')) || 
-              attributeValues.some(val => val.includes('accept'))) {
-            buttonType = 'accept';
+          if (attributes.some(attr => attr.includes(type)) || 
+              attributeValues.some(val => val.includes(type))) {
+            score += 3; // Lower score for attribute match
           }
-          // Check for reject-related attributes
-          else if (attributes.some(attr => attr.includes('reject')) || 
-                   attributeValues.some(val => val.includes('reject'))) {
-            buttonType = 'reject';
-          }
-          // Check for customize-related attributes
-          else if (attributes.some(attr => attr.includes('customize')) || 
-                   attributeValues.some(val => val.includes('customize')) ||
-                   attributes.some(attr => attr.includes('setting')) || 
-                   attributeValues.some(val => val.includes('setting'))) {
-            buttonType = 'customize';
+          
+          // Update button type if this score is higher
+          if (score > maxScore) {
+            maxScore = score;
+            buttonType = type;
           }
         }
         
-        // If still no match, try to infer from button position (last button is often accept)
+        // If still no match, try to infer from button position and styling
         if (!buttonType && clickableElements.length > 1) {
           const index = Array.from(clickableElements).indexOf(element);
+          
+          // Last button is often accept
           if (index === clickableElements.length - 1) {
-            buttonType = 'accept';
-          } else if (index === clickableElements.length - 2) {
-            buttonType = 'reject';
+            // Check if it has styling that suggests it's a primary/accept button
+            const style = window.getComputedStyle(element);
+            const hasPrimaryStyle = (
+              style.backgroundColor && 
+              (style.backgroundColor.includes('rgb(76, 175, 80)') || // Green
+               style.backgroundColor.includes('rgb(33, 150, 243)') || // Blue
+               style.backgroundColor.includes('rgb(3, 169, 244)'))   // Light blue
+            );
+            
+            if (hasPrimaryStyle) {
+              buttonType = 'accept';
+            }
+          }
+          
+          // Second to last button might be reject
+          if (index === clickableElements.length - 2 && !buttonType) {
+            // Check if it has styling that suggests it's a secondary/reject button
+            const style = window.getComputedStyle(element);
+            const hasSecondaryStyle = (
+              style.backgroundColor && 
+              (style.backgroundColor.includes('rgb(244, 67, 54)') || // Red
+               style.backgroundColor.includes('rgb(158, 158, 158)'))  // Gray
+            );
+            
+            if (hasSecondaryStyle) {
+              buttonType = 'reject';
+            }
           }
         }
         
         // If we found a button type, add it
         if (buttonType) {
-          buttons.push({ 
-            type: buttonType, 
-            element, 
-            text: element.textContent.trim() || buttonType.charAt(0).toUpperCase() + buttonType.slice(1) 
-          });
-          log(`[Cookie Simplifier] Identified as ${buttonType.toUpperCase()} button`);
+          // Only add if we don't already have this type or if this one has a higher score
+          const existingButtonIndex = buttons.findIndex(btn => btn.type === buttonType);
+          
+          if (existingButtonIndex === -1) {
+            // We don't have this type yet, add it
+            buttons.push({ 
+              type: buttonType, 
+              element, 
+              text: element.textContent.trim() || buttonType.charAt(0).toUpperCase() + buttonType.slice(1),
+              score: maxScore
+            });
+            log(`[Cookie Simplifier] Identified as ${buttonType.toUpperCase()} button with score ${maxScore}`);
+          } else if (maxScore > buttons[existingButtonIndex].score) {
+            // Replace with the higher scoring button
+            buttons[existingButtonIndex] = {
+              type: buttonType, 
+              element, 
+              text: element.textContent.trim() || buttonType.charAt(0).toUpperCase() + buttonType.slice(1),
+              score: maxScore
+            };
+            log(`[Cookie Simplifier] Replaced ${buttonType.toUpperCase()} button with higher score ${maxScore}`);
+          }
         }
       });
       
-      log(`[Cookie Simplifier] Extracted ${buttons.length} buttons:`, buttons.map(b => ({ type: b.type, text: b.text })));
+      // If we don't have a reject button, create a virtual one
+      if (!buttons.find(btn => btn.type === 'reject')) {
+        log("[Cookie Simplifier] No reject button found, will create virtual reject button");
+        
+        // Find the accept button to position our virtual reject button
+        const acceptButton = buttons.find(btn => btn.type === 'accept');
+        if (acceptButton) {
+          // Create a virtual reject button
+          buttons.push({
+            type: 'reject',
+            element: null, // No actual element
+            text: Translations.banner.rejectAll,
+            isVirtual: true,
+            score: 1 // Low score, will only be used if no real button is found
+          });
+        }
+      }
+      
+      log(`[Cookie Simplifier] Extracted ${buttons.length} buttons:`, buttons.map(b => ({ type: b.type, text: b.text, score: b.score })));
       return buttons;
     } catch (error) {
       log(`[Cookie Simplifier] Error extracting buttons: ${error.message}`);
@@ -588,14 +808,28 @@ const ContentExtractor = {
   },
   
   /**
-   * Extract customization page content
+   * Extract customization page content using the customize button
    */
-  async extractCustomizationContent(banner) {
-    log("[Cookie Simplifier] Extracting customization page content...");
+  async extractCustomizationContent(customizeButton) {
+    log("[Cookie Simplifier] Extracting customization page content using customize button...");
+    
+    if (!customizeButton) {
+      log("[Cookie Simplifier] No customize button provided");
+      return null;
+    }
+    
+    // Store the original customize button for later use
+    ExtensionState.originalCustomizeButton = customizeButton;
+    
+    // Capture request data from the customize button
+    const requestData = captureRequestData(customizeButton);
+    if (requestData) {
+      ExtensionState.customizationRequestData = requestData;
+      log("[Cookie Simplifier] Captured request data from customize button");
+    }
     
     try {
-      return await this.triggerCustomizationPage(banner);
- 
+      return await this.triggerCustomizationPage(customizeButton);
     } catch (error) {
       log(`[Cookie Simplifier] Error extracting customization content: ${error.message}`);
       return null;
@@ -603,98 +837,80 @@ const ContentExtractor = {
   },
   
   /**
-   * Trigger customization page by clicking customize button
+   * Trigger customization page by clicking the provided customize button
    */
-  async triggerCustomizationPage(banner) {
-    log("[Cookie Simplifier] Customization page not found, attempting to trigger it");
+  async triggerCustomizationPage(customizeButton) {
+    log("[Cookie Simplifier] Clicking customize button to open preferences");
     
-    // Find the customize button
-    const customizeBtn = banner.querySelector('#onetrust-pc-btn-handler') || 
-                        banner.querySelector('button') || 
-                        Array.from(banner.querySelectorAll('button')).find(btn => 
-                          btn.textContent.toLowerCase().includes('customize') || 
-                          btn.textContent.toLowerCase().includes('settings')
-                        );
+    // Store the current state of the document to detect changes
+    const initialBodyHTML = document.body.innerHTML;
     
-    if (customizeBtn) {
-      log("[Cookie Simplifier] Clicking customize button to open preferences");
-      
-      // Store original banner position to restore it later
-      const originalBannerPosition = banner.style.position;
-      
-      // Temporarily hide the banner to avoid interference
-      banner.style.position = 'absolute';
-      banner.style.left = '-9999px';
-      
+    try {
       // Click the customize button with error handling
-      try {
-        customizeBtn.click();
-      } catch (error) {
-        log(`[Cookie Simplifier] Error clicking customize button: ${error.message}`);
-        // Restore original banner position
-        banner.style.position = originalBannerPosition;
-        banner.style.left = '';
-        return null;
-      }
-      
-      // Wait for the customization page to appear
-      return new Promise((resolve) => {
-        let pageFound = false;
-        const checkInterval = setInterval(() => {
-          let foundPage = null;
-          
-          if (!foundPage) {
-            const allElements = document.querySelectorAll('*');
-            for (const element of allElements) {
-              const text = element.textContent.toLowerCase();
-              if (
-                (text.includes('cookie') || text.includes('consent') || text.includes('preference')) &&
-                element.querySelectorAll('input[type="checkbox"], input[type="radio"]').length > 0 &&
-                isElementVisibleToUser(element)
-              ) {
-                foundPage = element;
-                break;
-              }
-            }
-          }
-          
-          if (foundPage) {
-            clearInterval(checkInterval);
-            pageFound = true;
-            log("[Cookie Simplifier] Customization page appeared after clicking button");
-            
-            // Store reference to original customization page
-            ExtensionState.originalCustomizationPage = foundPage;
-            
-            // Restore original banner position
-            banner.style.position = originalBannerPosition;
-            banner.style.left = '';
-            
-            // Hide any overlays that might be causing the black screen
-            OverlayManager.hideOverlays();
-            
-            // Process the customization page (async)
-            this.processCustomizationPage(foundPage).then(resolve).catch(() => resolve(null));
-          }
-        }, 100);
+      customizeButton.click();
+    } catch (error) {
+      log(`[Cookie Simplifier] Error clicking customize button: ${error.message}`);
+      return null;
+    }
+    
+    // Wait for the customization page to appear
+    return new Promise((resolve) => {
+      let pageFound = false;
+      const checkInterval = setInterval(() => {
+        // Look for any new elements that might be the customization page
+        const foundPage = this.findNewCustomizationPage(initialBodyHTML);
         
-        // Timeout after 5 seconds
-        setTimeout(() => {
+        if (foundPage) {
           clearInterval(checkInterval);
-          if (!pageFound) {
-            log("[Cookie Simplifier] Timeout waiting for customization page");
-            
-            // Restore original banner position
-            banner.style.position = originalBannerPosition;
-            banner.style.left = '';
-            
-            // Hide any overlays that might be causing the black screen
-            OverlayManager.hideOverlays();
-            
-            resolve(null);
-          }
-        }, 5000);
-      });
+          pageFound = true;
+          log("[Cookie Simplifier] Customization page appeared after clicking button");
+          
+          // Store reference to original customization page
+          ExtensionState.originalCustomizationPage = foundPage;
+          
+          // Hide any overlays that might be causing the black screen
+          OverlayManager.hideOverlays();
+          
+          // Process the customization page (async)
+          this.processCustomizationPage(foundPage).then(resolve).catch(() => resolve(null));
+        }
+      }, 100);
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (!pageFound) {
+          log("[Cookie Simplifier] Timeout waiting for customization page");
+          resolve(null);
+        }
+      }, 5000);
+    });
+  },
+  
+  /**
+   * Find new customization page that appeared after clicking the button
+   */
+  findNewCustomizationPage(initialBodyHTML) {
+    // Get all elements that contain cookie preferences
+    const allElements = document.querySelectorAll('*');
+    
+    for (const element of allElements) {
+      // Skip if element is not visible
+      if (!isElementVisibleToUser(element)) continue;
+      
+      // Check if element contains cookie-related text and form controls
+      const text = element.textContent.toLowerCase();
+      const hasCookieText = text.includes('cookie') || text.includes('consent') || text.includes('preference');
+      const hasFormControls = element.querySelectorAll('input[type="checkbox"], input[type="radio"]').length > 0;
+      
+      // Also check if this element is new (wasn't in the initial DOM)
+      const elementHTML = element.outerHTML;
+      const isNewElement = !initialBodyHTML.includes(elementHTML);
+      
+      if (hasCookieText && hasFormControls && isNewElement) {
+        log(`[Cookie Simplifier] Found new customization page: ${element.tagName}${element.id ? '#' + element.id : ''}`);
+        return element;
+      }
     }
     
     return null;
@@ -712,6 +928,17 @@ const ContentExtractor = {
     
     // Hide the original customization page
     customizationPage.style.display = 'none';
+    
+    // Try to capture form data from the customization page
+    const form = customizationPage.querySelector('form');
+    if (form) {
+      const formData = captureFormData(form);
+      if (formData) {
+        ExtensionState.formSubmissionData = formData;
+        log("[Cookie Simplifier] Captured form data from customization page");
+      }
+    }
+    
     try {
       const html = customizationPage.outerHTML;
       log("[Cookie Simplifier] Sending customization HTML to LLM for processing");
@@ -735,7 +962,7 @@ const ContentExtractor = {
             response.categories.forEach(cat => {
               let toggle = null;
               if (!cat.isTextOnly) {
-                toggle = createCheckbox(cat.isChecked,cat.isDisabled);
+                toggle = createCheckbox(cat.isChecked, cat.isDisabled);
               }
               const accordionCategory = UIComponents.createAccordionCategory(
                 cat.translatedName,
@@ -745,13 +972,19 @@ const ContentExtractor = {
                 cat.subChoices.map(sub => ({
                   name: sub.translatedName,
                   description: sub.description,
-                  toggle: sub.isTextOnly ? null : (sub.isDisabled ? createCheckbox(sub.isChecked,true) : createCheckbox(sub.isChecked)),
+                  toggle: sub.isTextOnly ? null : createCheckbox(sub.isChecked, sub.isDisabled),
                   isAlwaysActive: sub.isAlwaysEnabled,
                   isTextOnly: sub.isTextOnly,
-                  originalName: sub.originalName // Pass for data attribute
+                  originalName: sub.originalName,
+                  toggleId: sub.toggleId,
+                  toggleName: sub.toggleName,
+                  toggleValue: sub.toggleValue
                 })),
                 cat.isTextOnly,
-                cat.originalName // Pass originalName for data attribute
+                cat.originalName,
+                cat.toggleId,
+                cat.toggleName,
+                cat.toggleValue
               );
               if (accordionCategory) {
                 // Store original name for syncing
@@ -770,6 +1003,7 @@ const ContentExtractor = {
       return fallbackContainer;
     }
   },
+  
   /**
    * Manual processing (original logic as fallback)
    */
@@ -827,7 +1061,10 @@ const ContentExtractor = {
               categoryData.isAlwaysActive,
               categoryData.subChoices,
               categoryData.isTextOnly,
-              categoryData.name // For fallback, originalName = translatedName since manual translates name
+              categoryData.name, // For fallback, originalName = translatedName since manual translates name
+              categoryData.toggleId,
+              categoryData.toggleName,
+              categoryData.toggleValue
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
@@ -888,6 +1125,10 @@ const ContentExtractor = {
             // Check if this category is always active
             const isAlwaysActive = this.isAlwaysActiveCategory(parent, representativeToggle, categoryName);
             
+            const toggleId = representativeToggle.id || null;
+            const toggleName = representativeToggle.name || null;
+            const toggleValue = representativeToggle.value || null;
+            
             // Create accordion category item
             const accordionCategory = UIComponents.createAccordionCategory(
               categoryName, 
@@ -896,7 +1137,10 @@ const ContentExtractor = {
               isAlwaysActive,
               [], // No sub-choices
               false, // Not text-only
-              categoryName // originalName
+              categoryName, // originalName
+              toggleId,
+              toggleName,
+              toggleValue
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
@@ -926,6 +1170,10 @@ const ContentExtractor = {
             // Check if this category is always active
             const isAlwaysActive = this.isAlwaysActiveCategory(parent, representativeToggle, categoryName);
             
+            const toggleId = representativeToggle.id || null;
+            const toggleName = representativeToggle.name || null;
+            const toggleValue = representativeToggle.value || null;
+            
             // Create accordion category item
             const accordionCategory = UIComponents.createAccordionCategory(
               categoryName, 
@@ -934,7 +1182,10 @@ const ContentExtractor = {
               isAlwaysActive,
               [], // No sub-choices
               false, // Not text-only
-              categoryName // originalName
+              categoryName, // originalName
+              toggleId,
+              toggleName,
+              toggleValue
             );
             // Only append if it's not null (not a text-only category)
             if (accordionCategory) {
@@ -955,7 +1206,10 @@ const ContentExtractor = {
         true,
         [], // No sub-choices
         false, // Not text-only
-        'Necessary Cookies' // originalName
+        'Necessary Cookies', // originalName
+        null,
+        null,
+        null
       );
       const analyticsCategory = UIComponents.createAccordionCategory(
         'Analytics Cookies', 
@@ -964,7 +1218,10 @@ const ContentExtractor = {
         false,
         [], // No sub-choices
         false, // Not text-only
-        'Analytics Cookies'
+        'Analytics Cookies',
+        null,
+        null,
+        null
       );
       const marketingCategory = UIComponents.createAccordionCategory(
         'Marketing Cookies', 
@@ -973,7 +1230,10 @@ const ContentExtractor = {
         false,
         [], // No sub-choices
         false, // Not text-only
-        'Marketing Cookies'
+        'Marketing Cookies',
+        null,
+        null,
+        null
       );
       
       // Only append if they're not null (not text-only categories)
@@ -1045,6 +1305,11 @@ const ContentExtractor = {
       toggle.checked = true; // Default to checked
     }
     
+    // Extract toggle attributes
+    let toggleId = toggle ? toggle.id || null : null;
+    let toggleName = toggle ? toggle.name || null : null;
+    let toggleValue = toggle ? toggle.getAttribute('value') || null : null;
+    
     // Check if this category is always active (only if it has a toggle)
     const isAlwaysActive = !isTextOnly && this.isAlwaysActiveCategory(category, toggle, categoryName);
     
@@ -1057,7 +1322,10 @@ const ContentExtractor = {
       toggle: toggle,
       isAlwaysActive: isAlwaysActive,
       isTextOnly: isTextOnly,
-      subChoices: subChoices
+      subChoices: subChoices,
+      toggleId: toggleId,
+      toggleName: toggleName,
+      toggleValue: toggleValue
     };
   },
   
@@ -1172,6 +1440,11 @@ const ContentExtractor = {
           subToggle.checked = true; // Default to checked
         }
         
+        // Extract sub toggle attributes
+        let subToggleId = subToggle ? subToggle.id || null : null;
+        let subToggleName = subToggle ? subToggle.name || null : null;
+        let subToggleValue = subToggle ? subToggle.getAttribute('value') || null : null;
+        
         // Check if this subcategory is always active (only if it has a toggle)
         const isSubAlwaysActive = !isTextOnly && this.isAlwaysActiveCategory(subCategory, subToggle, subName);
         
@@ -1180,7 +1453,10 @@ const ContentExtractor = {
           description: subDesc,
           toggle: subToggle,
           isAlwaysActive: isSubAlwaysActive,
-          isTextOnly: isTextOnly
+          isTextOnly: isTextOnly,
+          toggleId: subToggleId,
+          toggleName: subToggleName,
+          toggleValue: subToggleValue
         });
       });
     }
@@ -1272,14 +1548,9 @@ const UIComponents = {
    * Create accordion category for customization content
    * Updated to accept originalName for data attribute and subChoices with originalName
    */
-  createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = [], isTextOnly = false, originalName = '') {
+  createAccordionCategory(categoryName, description, toggleElement, isAlwaysActive = false, subChoices = [], isTextOnly = false, originalName = '', toggleId = null, toggleName = null, toggleValue = null) {
     // Translate the category name (fallback if needed)
     const translatedName = translateCategoryName(categoryName);
-    
-    // Skip creating UI for text-only categories (descriptions without toggles)
-    // if (isTextOnly) {
-    //   return null;
-    // }
     
     const categoryItem = document.createElement('div');
     categoryItem.className = 'cookie-category-item';
@@ -1290,6 +1561,9 @@ const UIComponents = {
     categoryItem.style.overflow = 'hidden';
     // Store original name for syncing
     categoryItem.setAttribute('data-original-name', originalName || translatedName);
+    categoryItem.setAttribute('data-toggle-id', toggleId || '');
+    categoryItem.setAttribute('data-toggle-name', toggleName || '');
+    categoryItem.setAttribute('data-toggle-value', toggleValue || '');
     
     // Category header (always visible)
     const header = document.createElement('div');
@@ -1298,7 +1572,7 @@ const UIComponents = {
     header.style.justifyContent = 'space-between';
     header.style.alignItems = 'center';
     header.style.padding = '12px';
-    header.style.cursor = 'pointer';
+    header.style.cursor = 'pointer'; // Always make header clickable
     header.style.backgroundColor = '#f9f9f9';
     
     const nameContainer = document.createElement('div');
@@ -1328,66 +1602,75 @@ const UIComponents = {
       nameContainer.appendChild(alwaysActiveBadge);
     }
     
-    // Add toggle icon
+    // Always add toggle icon (for both text-only and non-text-only)
     const toggleIcon = document.createElement('span');
     toggleIcon.className = 'cookie-category-toggle-icon';
-    toggleIcon.textContent = '▼'; // Down arrow
+    toggleIcon.textContent = '▼'; // Down arrow for collapsed state
     toggleIcon.style.color = '#666';
     toggleIcon.style.fontSize = '12px';
     toggleIcon.style.transition = 'transform 0.3s ease';
-    nameContainer.appendChild(categoryNameElement);
+    toggleIcon.style.transform = 'rotate(0deg)'; // No rotation for collapsed state
     nameContainer.appendChild(toggleIcon);
     
+    nameContainer.appendChild(categoryNameElement);
     header.appendChild(nameContainer);
     
-    // Add toggle switch
-    const toggleContainer = document.createElement('div');
-    toggleContainer.style.display = 'flex';
-    toggleContainer.style.alignItems = 'center';
+    // Define toggleClone variable (will be null for text-only categories)
+    let toggleClone = null;
     
-    const toggleClone = toggleElement ? toggleElement.cloneNode(true) : null;
-    if (toggleClone) {
-      toggleClone.style.cursor = 'pointer';
+    // Add toggle switch only if it's not text-only
+    if (!isTextOnly) {
+      const toggleContainer = document.createElement('div');
+      toggleContainer.style.display = 'flex';
+      toggleContainer.style.alignItems = 'center';
       
-      // Disable toggle if always active
-      if (isAlwaysActive) {
-        toggleClone.disabled = true;
-        toggleClone.checked = true;
+      toggleClone = toggleElement ? toggleElement.cloneNode(true) : null;
+      if (toggleClone) {
+        toggleClone.style.cursor = 'pointer';
+        
+        // Disable if always active
+        if (isAlwaysActive) {
+          toggleClone.disabled = true;
+          toggleClone.checked = true;
+        }
+        
+        // Add event listener for category toggle
+        toggleClone.addEventListener('change', () => {
+          // Update all sub-choices if category toggle is changed
+          const subToggles = categoryItem.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
+          subToggles.forEach(subToggle => {
+            if (!subToggle.disabled) {
+              subToggle.checked = toggleClone.checked;
+            }
+          });
+        });
+        
+        // Prevent toggle switch from bubbling up to header
+        toggleClone.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
       }
       
-      // Add event listener for main category toggle
-      toggleClone.addEventListener('change', (e) => {
-        // Toggle all subcategories when main category is toggled
-        const subToggles = categoryItem.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
-        subToggles.forEach(subToggle => {
-          if (!subToggle.disabled) {
-            subToggle.checked = e.target.checked;
-          }
-        });
-      });
-      
-      toggleContainer.appendChild(toggleClone);
+      if (toggleClone) toggleContainer.appendChild(toggleClone);
+      header.appendChild(toggleContainer);
     }
-    header.appendChild(toggleContainer);
     
-    // Category description (hidden by default)
+    // Description container
     const descriptionContainer = document.createElement('div');
     descriptionContainer.className = 'cookie-category-description';
-    descriptionContainer.style.padding = '0 12px 12px 12px';
-    descriptionContainer.style.backgroundColor = '#ffffff';
+    descriptionContainer.style.padding = '0 12px 12px';
+    descriptionContainer.style.fontSize = '13px';
+    descriptionContainer.style.color = '#555';
     descriptionContainer.style.fontFamily = Styling.persian.fontFamily;
-    descriptionContainer.style.fontSize = Styling.persian.fontSize;
-    descriptionContainer.style.color = Styling.persian.color;
-    descriptionContainer.style.lineHeight = Styling.persian.lineHeight;
-    descriptionContainer.style.display = 'none';
-    descriptionContainer.innerHTML = description; // Use the original/translated description
+    descriptionContainer.innerHTML = description;
+    descriptionContainer.style.display = 'none'; // Always start collapsed
     
-    // Sub-choices container (hidden by default)
+    // Sub-choices container
     const subChoicesContainer = document.createElement('div');
     subChoicesContainer.className = 'cookie-sub-choices';
     subChoicesContainer.style.padding = '0 12px 12px 24px'; // Indent sub-choices
     subChoicesContainer.style.backgroundColor = '#ffffff';
-    subChoicesContainer.style.display = 'none'; // Hidden by default
+    subChoicesContainer.style.display = 'none'; // Always start collapsed
     
     // Add sub-choices if any
     if (subChoices.length > 0) {
@@ -1404,6 +1687,9 @@ const UIComponents = {
         subChoiceItem.style.borderRadius = '4px';
         // Store original sub name for syncing
         subChoiceItem.setAttribute('data-original-name', subChoice.originalName || subChoice.name);
+        subChoiceItem.setAttribute('data-toggle-id', subChoice.toggleId || '');
+        subChoiceItem.setAttribute('data-toggle-name', subChoice.toggleName || '');
+        subChoiceItem.setAttribute('data-toggle-value', subChoice.toggleValue || '');
         
         const subChoiceHeader = document.createElement('div');
         subChoiceHeader.style.display = 'flex';
@@ -1411,12 +1697,11 @@ const UIComponents = {
         subChoiceHeader.style.alignItems = 'center';
         subChoiceHeader.style.marginBottom = '5px';
         
-        const subChoiceName = document.createElement('div');
+        const subChoiceName = document.createElement('span');
         subChoiceName.style.fontWeight = 'bold';
         subChoiceName.style.color = Styling.persian.color;
         subChoiceName.style.fontFamily = Styling.persian.fontFamily;
         subChoiceName.style.fontSize = Styling.persian.fontSize;
-        // Keep original subcategory name without translation? No, use translated
         subChoiceName.textContent = subChoice.name;
         
         // Add "Always Active" badge for sub-choice if needed
@@ -1452,9 +1737,9 @@ const UIComponents = {
             const checkedSubToggles = allSubToggles.filter(toggle => toggle.checked);
             
             // Update main category toggle based on subcategory states
-            // Only update if not all subcategories are always active
+            // Only update if not all subcategories are always active AND main category has a toggle
             const hasNonAlwaysActiveSubcategories = allSubToggles.length > 0;
-            if (hasNonAlwaysActiveSubcategories) {
+            if (hasNonAlwaysActiveSubcategories && toggleClone) {
               toggleClone.checked = allSubToggles.length === checkedSubToggles.length;
             }
           });
@@ -1478,30 +1763,31 @@ const UIComponents = {
       });
     }
     
-    // Add click event to toggle description and sub-choices visibility
+    // Add click event to toggle description and sub-choices visibility (for all categories)
     header.addEventListener('click', (e) => {
-      // Prevent toggle switch from triggering header click
-      if (toggleClone && e.target !== toggleClone) {
-        if (descriptionContainer.style.display === 'none') {
-          descriptionContainer.style.display = 'block';
-          subChoicesContainer.style.display = 'block';
+      // For non-text-only categories, prevent toggle switch from triggering header click
+      // For text-only categories, always allow toggling
+      if (!isTextOnly && toggleClone && e.target === toggleClone) {
+        return; // Don't toggle if clicking on the toggle switch of a non-text-only category
+      }
+      
+      // Toggle visibility
+      if (descriptionContainer.style.display === 'none') {
+        descriptionContainer.style.display = 'block';
+        subChoicesContainer.style.display = 'block';
+        if (toggleIcon) {
           toggleIcon.textContent = '▲'; // Up arrow
           toggleIcon.style.transform = 'rotate(180deg)';
-        } else {
-          descriptionContainer.style.display = 'none';
-          subChoicesContainer.style.display = 'none';
+        }
+      } else {
+        descriptionContainer.style.display = 'none';
+        subChoicesContainer.style.display = 'none';
+        if (toggleIcon) {
           toggleIcon.textContent = '▼'; // Down arrow
           toggleIcon.style.transform = 'rotate(0deg)';
         }
       }
     });
-    
-    // Prevent toggle switch from bubbling up to header
-    if (toggleClone) {
-      toggleClone.addEventListener('click', (e) => {
-        e.stopPropagation();
-      });
-    }
     
     categoryItem.appendChild(header);
     categoryItem.appendChild(descriptionContainer);
@@ -1546,11 +1832,11 @@ const UIComponents = {
       newBanner.style.overflow = 'hidden'; // Hide overflow for the main container
       
       newBanner.style.backgroundColor = 'white';
-      newBanner.style.border = '1px solid #ccc';
+      newBanner.style.border = '1px solid #e0e0e0';
       newBanner.style.padding = '0'; // Remove padding from main container
       newBanner.style.zIndex = '9999999';
-      newBanner.style.boxShadow = '0 5px 15px rgba(0,0,0,0.3)';
-      newBanner.style.borderRadius = '8px';
+      newBanner.style.boxShadow = '0 10px 25px rgba(0,0,0,0.15)';
+      newBanner.style.borderRadius = '12px';
       newBanner.style.fontFamily = Styling.persian.fontFamily;
       newBanner.style.display = 'flex';
       newBanner.style.flexDirection = 'column';
@@ -1558,6 +1844,12 @@ const UIComponents = {
       // Add CSS for black text class and RTL support with Persian styling
       const style = document.createElement('style');
       style.textContent = `
+        * {
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
+          color: ${Styling.persian.color} !important;
+          line-height: ${Styling.persian.lineHeight} !important;
+        }
         .black-text p,
         .black-text h1,
         .black-text h2,
@@ -1571,33 +1863,35 @@ const UIComponents = {
         .black-text td,
         .black-text th {
           color: #000000 !important;
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
         }
         .rtl-text {
           direction: rtl;
           text-align: right;
-          font-family: ${Styling.persian.fontFamily};
-          font-size: ${Styling.persian.fontSize};
-          color: ${Styling.persian.color};
-          line-height: ${Styling.persian.lineHeight};
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
+          color: ${Styling.persian.color} !important;
+          line-height: ${Styling.persian.lineHeight} !important;
         }
         .rtl-toggle {
           margin-left: 10px;
           margin-right: 0;
         }
         .cookie-category-name {
-          font-family: ${Styling.persian.fontFamily};
-          font-size: ${Styling.persian.fontSize};
-          color: ${Styling.persian.color};
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
+          color: ${Styling.persian.color} !important;
         }
         .cookie-category-description {
           margin-bottom: 10px;
           padding: 8px 12px;
           background-color: #f5f5f5;
           border-radius: 4px;
-          font-family: ${Styling.persian.fontFamily};
-          font-size: ${Styling.persian.fontSize};
-          color: ${Styling.persian.color};
-          line-height: ${Styling.persian.lineHeight};
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
+          color: ${Styling.persian.color} !important;
+          line-height: ${Styling.persian.lineHeight} !important;
           display: none;
         }
         .subcategory-description {
@@ -1605,19 +1899,63 @@ const UIComponents = {
           padding: 5px 10px;
           background-color: #f0f0f0;
           border-radius: 4px;
-          font-size: 12px;
-          color: #555;
-          font-family: ${Styling.persian.fontFamily};
+          font-size: 12px !important;
+          color: #555 !important;
+          font-family: ${Styling.persian.fontFamily} !important;
+        }
+        .action-buttons-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .action-button {
+          flex: 1;
+          padding: 10px 16px;
+          border-radius: 8px;
+          border: none;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          font-family: ${Styling.persian.fontFamily} !important;
+          font-size: ${Styling.persian.fontSize} !important;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .action-button:hover {
+          opacity: 0.9;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .action-button:active {
+          transform: translateY(0);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .accept-button {
+          background-color: #66BB6A; /* Softer green */
+          color: white;
+        }
+        .reject-button {
+          background-color: #EF5350; /* Softer red */
+          color: white;
+        }
+        .selection-button {
+          background-color: #42A5F5; /* Softer blue */
+          color: white;
+          width: 100%;
+          padding: 12px 16px;
+        }
+        .selection-button:hover {
+          background-color: #1E88E5; /* Darker blue on hover */
         }
       `;
       newBanner.appendChild(style);
       
       // Header section with title and close button
       const header = document.createElement('div');
-      header.style.padding = '20px 20px 10px 20px';
+      header.style.padding = '20px 20px 15px 20px';
       header.style.display = 'flex';
       header.style.justifyContent = 'space-between';
       header.style.alignItems = 'center';
+      header.style.borderBottom = '1px solid #f0f0f0';
       
       // Title
       const title = document.createElement('h3');
@@ -1625,8 +1963,9 @@ const UIComponents = {
       title.setAttribute('dir', 'rtl');
       title.style.margin = '0';
       title.style.fontSize = '18px';
+      title.style.fontWeight = 'bold';
       title.style.fontFamily = Styling.persian.fontFamily;
-      title.style.color = Styling.persian.color;
+      title.style.color = '#333';
       header.appendChild(title);
       
       // Close button
@@ -1640,11 +1979,21 @@ const UIComponents = {
       closeBtn.style.fontSize = '18px';
       closeBtn.style.color = '#777';
       closeBtn.style.padding = '0';
-      closeBtn.style.width = '24px';
-      closeBtn.style.height = '24px';
+      closeBtn.style.width = '32px';
+      closeBtn.style.height = '32px';
       closeBtn.style.display = 'flex';
       closeBtn.style.alignItems = 'center';
       closeBtn.style.justifyContent = 'center';
+      closeBtn.style.borderRadius = '50%';
+      closeBtn.style.transition = 'background-color 0.2s';
+      
+      // Add hover effect for close button
+      closeBtn.addEventListener('mouseenter', () => {
+        closeBtn.style.backgroundColor = '#f0f0f0';
+      });
+      closeBtn.addEventListener('mouseleave', () => {
+        closeBtn.style.backgroundColor = 'transparent';
+      });
       
       // Add event listener for close button
       closeBtn.addEventListener('click', () => {
@@ -1667,7 +2016,7 @@ const UIComponents = {
       
       // Content container with scrollable HTML content
       const contentContainer = document.createElement('div');
-      contentContainer.style.padding = '0 20px 20px 20px';
+      contentContainer.style.padding = '15px 20px';
       contentContainer.style.overflowY = 'auto'; // Make content scrollable
       contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
       contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
@@ -1680,12 +2029,13 @@ const UIComponents = {
       persianDescription.style.fontFamily = Styling.persian.fontFamily;
       persianDescription.style.fontSize = Styling.persian.fontSize;
       persianDescription.setAttribute('dir', 'rtl');
+      persianDescription.style.marginBottom = '15px';
       persianDescription.innerHTML = `<p style="color: ${Styling.persian.color}; font-family: ${Styling.persian.fontFamily}; font-size: ${Styling.persian.fontSize};">${Translations.banner.description}</p>`;
       contentContainer.appendChild(persianDescription);
       
       // Add a separator between content and customization
       const separator = document.createElement('hr');
-      separator.style.margin = '20px 0';
+      separator.style.margin = '15px 0';
       separator.style.border = 'none';
       separator.style.borderTop = '1px solid #eee';
       contentContainer.appendChild(separator);
@@ -1697,40 +2047,47 @@ const UIComponents = {
       
       newBanner.appendChild(contentContainer);
       
-      // Button container
+      // Button container with improved layout
       const buttonContainer = document.createElement('div');
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.flexDirection = 'column';
-      buttonContainer.style.gap = '10px';
-      buttonContainer.style.padding = '0 20px 20px 20px';
+      buttonContainer.style.padding = '15px 20px 20px 20px';
       buttonContainer.style.backgroundColor = '#ffffff';
+      buttonContainer.style.borderTop = '1px solid #f0f0f0';
       
       // Create a reference to the banner for use in button handlers
       const bannerRef = newBanner;
       
-      // Add Accept button - Use Persian text
-      const acceptBtn = this.createActionButton(
-        Translations.banner.acceptAll,
-        '#4CAF50',
-        () => this.handleAcceptButton(buttons, bannerRef)
-      );
+      // Create a row for Accept and Reject buttons
+      const actionButtonsRow = document.createElement('div');
+      actionButtonsRow.className = 'action-buttons-row';
       
       // Add Reject button - Use Persian text
       const rejectBtn = this.createActionButton(
         Translations.banner.rejectAll,
-        '#f44336',
-        () => this.handleRejectButton(buttons, bannerRef)
+        '#EF5350', // Softer red
+        () => this.handleRejectButton(buttons, bannerRef),
+        'reject-button action-button'
       );
       
-      // Add Accept Selection button - Use Persian text
+      // Add Accept button - Use Persian text
+      const acceptBtn = this.createActionButton(
+        Translations.banner.acceptAll,
+        '#66BB6A', // Softer green
+        () => this.handleAcceptButton(buttons, bannerRef),
+        'accept-button action-button'
+      );
+      
+      actionButtonsRow.appendChild(rejectBtn);
+      actionButtonsRow.appendChild(acceptBtn);
+      
+      // Add Accept Selection button - Use Persian text (full width below)
       const acceptSelectionBtn = this.createActionButton(
         Translations.banner.acceptSelection,
-        '#2196F3',
-        () => this.handleAcceptSelectionButton(bannerRef)
+        '#42A5F5', // Softer blue
+        () => this.handleAcceptSelectionButton(bannerRef),
+        'selection-button action-button'
       );
       
-      buttonContainer.appendChild(acceptBtn);
-      buttonContainer.appendChild(rejectBtn);
+      buttonContainer.appendChild(actionButtonsRow);
       buttonContainer.appendChild(acceptSelectionBtn);
       
       newBanner.appendChild(buttonContainer);
@@ -1744,7 +2101,7 @@ const UIComponents = {
       scrollIndicator.style.height = '10px';
       scrollIndicator.style.background = 'linear-gradient(to top, rgba(0,0,0,0.1), transparent)';
       scrollIndicator.style.pointerEvents = 'none';
-      scrollIndicator.style.borderRadius = '0 0 8px 8px';
+      scrollIndicator.style.borderRadius = '0 0 12px 12px';
       newBanner.appendChild(scrollIndicator);
       
       // Add a function to show/hide scroll indicator based on content
@@ -1787,24 +2144,19 @@ const UIComponents = {
       return null;
     }
   },
-  
+
   /**
    * Create action button with consistent styling
+   * Updated with improved styling and CSS class support
    */
-  createActionButton(text, backgroundColor, clickHandler) {
+  createActionButton(text, backgroundColor, clickHandler, className = '') {
     const button = document.createElement('button');
     button.textContent = text;
     button.setAttribute('tabindex', '0');
-    button.style.padding = '12px 16px';
+    button.className = className;
     button.style.cursor = 'pointer';
     button.style.border = 'none';
-    button.style.borderRadius = '4px';
-    button.style.fontSize = Styling.persian.fontSize;
-    button.style.fontWeight = 'bold';
-    button.style.fontFamily = Styling.persian.fontFamily;
-    button.style.width = '100%'; // Make buttons full width
-    button.style.backgroundColor = backgroundColor;
-    button.style.color = 'white';
+    button.style.fontWeight = '600';
     
     // Add click handler
     button.addEventListener('click', clickHandler);
@@ -1827,7 +2179,7 @@ const UIComponents = {
     
     // Find and click the original accept button
     const originalAcceptBtn = buttons.find(btn => btn.type === 'accept');
-    if (originalAcceptBtn) {
+    if (originalAcceptBtn && !originalAcceptBtn.isVirtual) {
       try {
         const cookieBefore = document.cookie;
         
@@ -1892,20 +2244,20 @@ const UIComponents = {
         banner.remove();
       }
     } else {
-      // No original button found, just remove our banner
+      // If it's a virtual button or no button found, just remove our banner
       banner.remove();
     }
   },
   
   /**
-   * Handle reject button click
+   * Handle reject button click with improved logic
    */
   handleRejectButton(buttons, banner) {
     log("[Cookie Simplifier] Reject All button clicked");
     
     // Find and click the original reject button
     const originalRejectBtn = buttons.find(btn => btn.type === 'reject');
-    if (originalRejectBtn) {
+    if (originalRejectBtn && !originalRejectBtn.isVirtual) {
       try {
         const cookieBefore = document.cookie;
         
@@ -1970,11 +2322,19 @@ const UIComponents = {
         banner.remove();
       }
     } else {
-      // No original button found, just remove our banner
-      banner.remove();
+      // Virtual reject: uncheck all non-disabled toggles in our UI
+      const allOurToggles = banner.querySelectorAll('input[type="checkbox"]');
+      allOurToggles.forEach(t => {
+        if (!t.disabled) {
+          t.checked = false;
+        }
+      });
+      
+      // Then handle as accept selection (sync and save)
+      this.handleAcceptSelectionButton(banner);
     }
   },
-  
+
   /**
    * Handle accept selection button click
    * Updated to use data-original-name for syncing
@@ -1982,130 +2342,243 @@ const UIComponents = {
   handleAcceptSelectionButton(banner) {
     log("[Cookie Simplifier] Accept Selection button clicked");
     
-    // First, synchronize the toggle states from our simplified banner to the original customization page
+    // First, try to use the captured request data if available
+    if (ExtensionState.customizationRequestData) {
+      log("[Cookie Simplifier] Using captured request data from customize button");
+      
+      // Create updated data based on user selections
+      const updatedData = {};
+      
+      // Get all category toggles in our simplified banner
+      const categoryToggles = banner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+      
+      // Build a representation of user selections
+      const userSelections = {};
+      categoryToggles.forEach(toggle => {
+        const categoryItem = toggle.closest('.cookie-category-item');
+        const originalName = categoryItem.getAttribute('data-original-name');
+        
+        // Store user selection
+        userSelections[originalName] = toggle.checked;
+        
+        // Map category names to form field names (this will need to be customized per website)
+        if (originalName.includes('Analytics')) {
+          updatedData['analytics'] = toggle.checked ? '1' : '0';
+          updatedData['C0003'] = toggle.checked ? '1' : '0'; // OneTrust common ID
+        } else if (originalName.includes('Targeting') || originalName.includes('Advertising')) {
+          updatedData['advertising'] = toggle.checked ? '1' : '0';
+          updatedData['C0004'] = toggle.checked ? '1' : '0'; // OneTrust common ID
+        } else if (originalName.includes('Functional') || originalName.includes('Performance')) {
+          updatedData['functional'] = toggle.checked ? '1' : '0';
+          updatedData['C0002'] = toggle.checked ? '1' : '0'; // OneTrust common ID
+        } else if (originalName.includes('Necessary') || originalName.includes('Essential')) {
+          // Necessary cookies should always be enabled
+          updatedData['necessary'] = '1';
+          updatedData['C0001'] = '1';
+        }
+      });
+      
+      log("[Cookie Simplifier] User selections:", userSelections);
+      
+      // Send the request with updated data
+      if (sendCapturedRequest(ExtensionState.customizationRequestData, updatedData)) {
+        log("[Cookie Simplifier] Successfully sent request with updated data");
+        // Remove our banner after a short delay
+        setTimeout(() => {
+          banner.remove();
+        }, 300);
+        return;
+      }
+    }
+    
+    // If we have form submission data, use that
+    if (ExtensionState.formSubmissionData) {
+      log("[Cookie Simplifier] Using captured form data");
+      
+      // Create a new FormData object to modify the values
+      const modifiedFormData = new FormData();
+      
+      // Copy all form data but modify the values based on user selection
+      const { formData, actionUrl } = ExtensionState.formSubmissionData;
+      
+      // Get the current groups value
+      const groupsValue = formData.get('groups');
+      
+      // Parse the groups value to modify it according to user selections
+      if (groupsValue) {
+        // Start with only the necessary cookies (C0001) which should always be enabled
+        let newGroupsValue = 'C0001:1';
+        
+        // Add other categories based on user selection
+        const categoryToggles = banner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
+        
+        categoryToggles.forEach(toggle => {
+          if (!toggle.disabled && toggle.checked) {
+            const categoryItem = toggle.closest('.cookie-category-item');
+            const originalName = categoryItem.getAttribute('data-original-name');
+            
+            // Map category names to OneTrust group IDs (adjust based on common mappings)
+            if (originalName.includes('Analytics')) {
+              newGroupsValue += ',C0003:1';
+            } else if (originalName.includes('Targeting') || originalName.includes('Advertising')) {
+              newGroupsValue += ',C0004:1';
+            } else if (originalName.includes('Functional') || originalName.includes('Performance')) {
+              newGroupsValue += ',C0002:1';
+            }
+          }
+        });
+        
+        // Set the modified groups value
+        modifiedFormData.set('groups', newGroupsValue);
+        
+        // Copy all other form data
+        for (const [key, value] of formData.entries()) {
+          if (key !== 'groups') {
+            modifiedFormData.set(key, value);
+          }
+        }
+        
+        // Submit the modified form data
+        if (submitFormData(modifiedFormData, actionUrl)) {
+          log("[Cookie Simplifier] Modified form submitted successfully");
+          // Remove our banner after a short delay
+          setTimeout(() => {
+            banner.remove();
+          }, 300);
+          return;
+        }
+      }
+    }
+    
+    // Fallback: synchronize the toggle states from our simplified banner to the original customization page
     if (ExtensionState.originalCustomizationPage) {
       try {
         // Find all category toggles in our simplified banner
         const categoryToggles = banner.querySelectorAll('.cookie-category-header input[type="checkbox"]');
         
+        // Synchronize category toggles
         categoryToggles.forEach(toggle => {
           const categoryItem = toggle.closest('.cookie-category-item');
           const originalName = categoryItem.getAttribute('data-original-name');
+          const toggleId = categoryItem.getAttribute('data-toggle-id');
+          const toggleName = categoryItem.getAttribute('data-toggle-name');
           
-          // Find the corresponding category in the original customization page
-          const originalCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+          let originalToggle = null;
           
-          originalCategories.forEach(originalCategory => {
-            const originalTitle = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
-            if (originalTitle && originalTitle.textContent.trim() === originalName) {
-              const originalToggle = originalCategory.querySelector('input[type="checkbox"]');
-              if (originalToggle) {
-                originalToggle.checked = toggle.checked;
-                log(`[Cookie Simplifier] Synchronized toggle state for category: ${originalName}`);
+          if (toggleId && toggleId !== '') {
+            originalToggle = document.getElementById(toggleId);
+          } else if (toggleName && toggleName !== '') {
+            originalToggle = document.querySelector(`input[name="${toggleName}"]`);
+          } 
+          
+          if (!originalToggle) {
+            // Fallback to searching by title
+            const originalCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-cat-item, .category-item, [class*="category"]');
+            
+            for (const originalCategory of originalCategories) {
+              const originalTitleElem = originalCategory.querySelector('h3, h4, h5, .title, .category-title, [class*="title"]');
+              const titleText = originalTitleElem ? originalTitleElem.textContent.trim() : '';
+              
+              if (titleText === originalName) {
+                originalToggle = originalCategory.querySelector('input[type="checkbox"], input[type="radio"], .toggle, .switch');
+                if (originalToggle) break;
               }
             }
-          });
+          }
+          
+          if (originalToggle) {
+            if (!originalToggle.disabled) {
+              originalToggle.checked = toggle.checked;
+              log(`[Cookie Simplifier] Synchronized category toggle for ${originalName} to ${toggle.checked}`);
+            } else {
+              log(`[Cookie Simplifier] Skipping disabled toggle for category: ${originalName}`);
+            }
+          } else {
+            log(`[Cookie Simplifier] Could not find original toggle for category: ${originalName}`);
+          }
         });
         
-        // Find all subcategory toggles in our simplified banner
+        // Also synchronize subcategories
         const subCategoryToggles = banner.querySelectorAll('.cookie-sub-choices input[type="checkbox"]');
         
         subCategoryToggles.forEach(toggle => {
-          const subCategoryItem = toggle.closest('.cookie-sub-choices > div');
-          if (subCategoryItem) {
-            const originalSubName = subCategoryItem.getAttribute('data-original-name');
+          const subItem = toggle.closest('div'); // The sub-choice div
+          if (subItem) {
+            const originalSubName = subItem.getAttribute('data-original-name');
+            const toggleId = subItem.getAttribute('data-toggle-id');
+            const toggleName = subItem.getAttribute('data-toggle-name');
             
-            // Find the corresponding subcategory in the original customization page
-            const originalSubCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"]');
+            let originalToggle = null;
             
-            originalSubCategories.forEach(originalSubCategory => {
-              const originalTitle = originalSubCategory.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
-              if (originalTitle && originalTitle.textContent.trim() === originalSubName) {
-                const originalToggle = originalSubCategory.querySelector('input[type="checkbox"]');
-                if (originalToggle) {
-                  originalToggle.checked = toggle.checked;
-                  log(`[Cookie Simplifier] Synchronized toggle state for subcategory: ${originalSubName}`);
+            if (toggleId && toggleId !== '') {
+              originalToggle = document.getElementById(toggleId);
+            } else if (toggleName && toggleName !== '') {
+              originalToggle = document.querySelector(`input[name="${toggleName}"]`);
+            } 
+            
+            if (!originalToggle) {
+              // Fallback to searching by title
+              const originalSubCategories = ExtensionState.originalCustomizationPage.querySelectorAll('.ot-subgrp, .subcategory, [class*="sub-cat"], .ot-sub-item');
+              
+              for (const originalSub of originalSubCategories) {
+                const originalTitleElem = originalSub.querySelector('h4, h5, h6, .subtitle, [class*="title"]');
+                const titleText = originalTitleElem ? originalTitleElem.textContent.trim() : '';
+                
+                if (titleText === originalSubName) {
+                  originalToggle = originalSub.querySelector('input[type="checkbox"], input[type="radio"], .toggle, .switch');
+                  if (originalToggle) break;
                 }
               }
-            });
+            }
+            
+            if (originalToggle) {
+              if (!originalToggle.disabled) {
+                originalToggle.checked = toggle.checked;
+                log(`[Cookie Simplifier] Synchronized subcategory toggle for ${originalSubName} to ${toggle.checked}`);
+              } else {
+                log(`[Cookie Simplifier] Skipping disabled toggle for subcategory: ${originalSubName}`);
+              }
+            } else {
+              log(`[Cookie Simplifier] Could not find original toggle for subcategory: ${originalSubName}`);
+            }
           }
         });
         
-        // Try to submit the form using POST request if form data is available
-        if (ExtensionState.formSubmissionData) {
-          // Create a new FormData object to modify the values
-          const modifiedFormData = new FormData();
-          
-          // Copy all form data but modify the groups parameter based on user selection
-          const { formData, actionUrl } = ExtensionState.formSubmissionData;
-          
-          // Get the current groups value
-          const groupsValue = formData.get('groups');
-          
-          // Parse the groups value to modify it according to user selections
-          if (groupsValue) {
-            // Start with only the necessary cookies (C0001) which should always be enabled
-            let newGroupsValue = 'C0001:1';
-            
-            // Add other categories based on user selection
-            categoryToggles.forEach(toggle => {
-              if (!toggle.disabled && toggle.checked) {
-                const categoryItem = toggle.closest('.cookie-category-item');
-                const originalName = categoryItem.getAttribute('data-original-name');
-                
-                // Map category names to OneTrust group IDs (adjust based on common mappings)
-                if (originalName.includes('Analytics')) {
-                  newGroupsValue += ',C0003:1';
-                } else if (originalName.includes('Targeting') || originalName.includes('Advertising')) {
-                  newGroupsValue += ',C0004:1';
-                } else if (originalName.includes('Functional') || originalName.includes('Performance')) {
-                  newGroupsValue += ',C0002:1';
-                }
-              }
-            });
-            
-            // Set the modified groups value
-            modifiedFormData.set('groups', newGroupsValue);
-            
-            // Copy all other form data
-            for (const [key, value] of formData.entries()) {
-              if (key !== 'groups') {
-                modifiedFormData.set(key, value);
-              }
-            }
-            
-            // Submit the modified form data
-            if (submitFormData(modifiedFormData, actionUrl)) {
-              log("[Cookie Simplifier] Modified form submitted successfully");
-              // Remove our banner after a short delay
-              setTimeout(() => {
-                banner.remove();
-              }, 300);
-              return;
-            }
-          }
-        }
-        
-        // If POST submission failed or not available, try clicking the save button
         // Make the original customization page visible temporarily
         const originalDisplay = ExtensionState.originalCustomizationPage.style.display;
         ExtensionState.originalCustomizationPage.style.display = 'block';
         
         // Now find and click the save button in the original customization page
-        const saveButton = ExtensionState.originalCustomizationPage.querySelector('.save-preference-btn, .btn-primary, .accept-btn, #save-preferences, [aria-label*="save"]');
+        let saveButton = null;
+        for (const selector of Selectors.saveButtons) {
+          saveButton = ExtensionState.originalCustomizationPage.querySelector(selector);
+          if (saveButton) break;
+        }
+        
         if (saveButton) {
-          log("[Cookie Simplifier] Found save button, clicking it");
+          log("[Cookie Simplifier] Found save button using selectors, clicking it");
           saveButton.click();
         } else {
           // Try alternative save button selectors
           const altSaveButtons = ExtensionState.originalCustomizationPage.querySelectorAll('button');
-          for (const btn of altSaveButtons) {
-            const btnText = btn.textContent.toLowerCase();
-            if (btnText.includes('save') || btnText.includes('confirm') || btnText.includes('accept')) {
-              log("[Cookie Simplifier] Found alternative save button, clicking it");
-              btn.click();
-              break;
+          let saveBtnFound = false;
+          const possibleTexts = ['save', 'confirm', 'submit', 'apply', 'ok'];
+          
+          for (const text of possibleTexts) {
+            for (const btn of altSaveButtons) {
+              const btnText = btn.textContent.toLowerCase();
+              if (btnText.includes(text)) {
+                log(`[Cookie Simplifier] Found alternative save button with text '${btn.textContent}', clicking it`);
+                btn.click();
+                saveBtnFound = true;
+                break;
+              }
             }
+            if (saveBtnFound) break;
+          }
+          
+          if (!saveBtnFound) {
+            log("[Cookie Simplifier] No save button found");
           }
         }
         
@@ -2113,8 +2586,10 @@ const UIComponents = {
         setTimeout(() => {
           ExtensionState.originalCustomizationPage.style.display = originalDisplay;
           
-          // Hide any overlays that might have appeared and remove our banner
+          // Hide any overlays that might have appeared
           OverlayManager.hideOverlays();
+          
+          // Remove our banner
           banner.remove();
         }, 500);
       } catch (error) {
@@ -2475,6 +2950,9 @@ const ObserverManager = {
         return;
       }
       
+      // Find the customize button
+      const customizeButton = buttons.find(btn => btn.type === 'customize')?.element || null;
+      
       // Prefetch customization content only if the banner is visible
       log("[Cookie Simplifier] Prefetching customization content");
       let customizationContent = null;
@@ -2485,8 +2963,9 @@ const ObserverManager = {
           setTimeout(() => reject(new Error('Timeout')), 15000); // 15 seconds timeout
         });
         
+        // Pass the customize button directly instead of the banner
         customizationContent = await Promise.race([
-          ContentExtractor.extractCustomizationContent(banner),
+          ContentExtractor.extractCustomizationContent(customizeButton),
           timeoutPromise
         ]);
         
