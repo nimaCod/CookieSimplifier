@@ -1826,20 +1826,23 @@ const UIComponents = {
       newBanner.style.transform = 'translate(-50%, -50%)';
       
       // Use the original banner's dimensions or default size
-      newBanner.style.width = bannerRect.width > 300 ? `${bannerRect.width}px` : '600px';
+      newBanner.style.width = bannerRect.width > 300 ? `${bannerRect.width}px` : '650px';
       newBanner.style.maxWidth = '90vw'; // Use viewport width for better responsiveness
       newBanner.style.maxHeight = '85vh'; // Limit height to 85% of viewport height
       newBanner.style.overflow = 'hidden'; // Hide overflow for the main container
       
-      newBanner.style.backgroundColor = 'white';
-      newBanner.style.border = '1px solid #e0e0e0';
+      // Premium styling with glassmorphism effect
+      newBanner.style.backgroundColor = 'rgba(255, 255, 255, 0.95)';
+      newBanner.style.border = '1px solid rgba(255, 255, 255, 0.3)';
       newBanner.style.padding = '0'; // Remove padding from main container
       newBanner.style.zIndex = '9999999';
-      newBanner.style.boxShadow = '0 10px 25px rgba(0,0,0,0.15)';
-      newBanner.style.borderRadius = '12px';
+      newBanner.style.boxShadow = '0 20px 60px rgba(0, 0, 0, 0.3), 0 5px 15px rgba(0, 0, 0, 0.1)';
+      newBanner.style.borderRadius = '20px';
       newBanner.style.fontFamily = Styling.persian.fontFamily;
       newBanner.style.display = 'flex';
       newBanner.style.flexDirection = 'column';
+      newBanner.style.backdropFilter = 'blur(20px)';
+      newBanner.style.webkitBackdropFilter = 'blur(20px)';
       
       // Add CSS for black text class and RTL support with Persian styling
       const style = document.createElement('style');
@@ -1886,113 +1889,189 @@ const UIComponents = {
         .cookie-category-description {
           margin-bottom: 10px;
           padding: 8px 12px;
-          background-color: #f5f5f5;
-          border-radius: 4px;
+          background-color: rgba(245, 245, 245, 0.7);
+          border-radius: 8px;
           font-family: ${Styling.persian.fontFamily} !important;
           font-size: ${Styling.persian.fontSize} !important;
           color: ${Styling.persian.color} !important;
           line-height: ${Styling.persian.lineHeight} !important;
           display: none;
+          backdrop-filter: blur(5px);
         }
         .subcategory-description {
           margin-top: 5px;
           padding: 5px 10px;
-          background-color: #f0f0f0;
-          border-radius: 4px;
+          background-color: rgba(240, 240, 240, 0.7);
+          border-radius: 6px;
           font-size: 12px !important;
           color: #555 !important;
           font-family: ${Styling.persian.fontFamily} !important;
+          backdrop-filter: blur(5px);
         }
         .action-buttons-row {
           display: flex;
-          gap: 12px;
-          margin-bottom: 12px;
+          gap: 15px;
+          margin-bottom: 15px;
         }
         .action-button {
           flex: 1;
-          padding: 10px 16px;
-          border-radius: 8px;
+          padding: 10px 16px; /* Reduced padding for smaller buttons */
+          border-radius: 10px; /* Slightly smaller border radius */
           border: none;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
           font-family: ${Styling.persian.fontFamily} !important;
           font-size: ${Styling.persian.fontSize} !important;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Reduced shadow */
+          position: relative;
+          overflow: hidden;
+          z-index: 1;
+        }
+        .action-button::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(45deg, rgba(255,255,255,0.3), transparent);
+          opacity: 0;
+          transition: opacity 0.3s ease;
+          z-index: -1;
+        }
+        .action-button:hover::before {
+          opacity: 1;
         }
         .action-button:hover {
-          opacity: 0.9;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+          transform: translateY(-2px); /* Reduced movement */
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15); /* Reduced shadow */
         }
         .action-button:active {
-          transform: translateY(0);
-          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+          transform: translateY(-1px);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         .accept-button {
-          background-color: #66BB6A; /* Softer green */
+          background: linear-gradient(135deg, #66BB6A, #4CAF50);
           color: white;
         }
         .reject-button {
-          background-color: #EF5350; /* Softer red */
+          background: linear-gradient(135deg, #EF5350, #E53935);
           color: white;
         }
         .selection-button {
-          background-color: #42A5F5; /* Softer blue */
+          background: linear-gradient(135deg, #42A5F5, #2196F3);
           color: white;
           width: 100%;
-          padding: 12px 16px;
+          padding: 12px 16px; /* Reduced padding */
+          font-size: 14px !important; /* Reduced font size */
+          font-weight: 600; /* Reduced font weight */
+          letter-spacing: 0.3px; /* Reduced letter spacing */
         }
         .selection-button:hover {
-          background-color: #1E88E5; /* Darker blue on hover */
+          background: linear-gradient(135deg, #1E88E5, #1976D2);
+        }
+        .luxury-gradient {
+          background: linear-gradient(135deg, rgba(102, 187, 106, 0.1), rgba(66, 165, 245, 0.1));
+          border-radius: 20px;
+          padding: 2px;
+        }
+        .cookie-category-item {
+          background: rgba(255, 255, 255, 0.8);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.5);
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+        .cookie-category-header {
+          background: linear-gradient(to right, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+        }
+        .scrollable-content {
+          overflow-y: auto;
+          max-height: 50vh; /* Limit the height to make it scrollable */
+          scrollbar-width: thin; /* For Firefox */
+          scrollbar-color: rgba(66, 165, 245, 0.5) transparent; /* For Firefox */
+        }
+        .scrollable-content::-webkit-scrollbar {
+          width: 8px; /* Width of the scrollbar */
+        }
+        .scrollable-content::-webkit-scrollbar-track {
+          background: rgba(240, 240, 240, 0.3); /* Track color */
+          border-radius: 10px;
+        }
+        .scrollable-content::-webkit-scrollbar-thumb {
+          background-color: rgba(66, 165, 245, 0.5); /* Thumb color */
+          border-radius: 10px;
+        }
+        .scrollable-content::-webkit-scrollbar-thumb:hover {
+          background-color: rgba(66, 165, 245, 0.7); /* Thumb color on hover */
         }
       `;
       newBanner.appendChild(style);
       
+      // Create a luxury gradient wrapper
+      const gradientWrapper = document.createElement('div');
+      gradientWrapper.className = 'luxury-gradient';
+      gradientWrapper.style.borderRadius = '20px';
+      gradientWrapper.style.padding = '2px';
+      
+      // Create the actual banner content container
+      const bannerContent = document.createElement('div');
+      bannerContent.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+      bannerContent.style.borderRadius = '18px';
+      bannerContent.style.overflow = 'hidden';
+      bannerContent.style.display = 'flex';
+      bannerContent.style.flexDirection = 'column';
+      
       // Header section with title and close button
       const header = document.createElement('div');
-      header.style.padding = '20px 20px 15px 20px';
+      header.style.padding = '25px 25px 20px 25px';
       header.style.display = 'flex';
       header.style.justifyContent = 'space-between';
       header.style.alignItems = 'center';
-      header.style.borderBottom = '1px solid #f0f0f0';
+      header.style.background = 'linear-gradient(to right, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7))';
+      header.style.borderBottom = '1px solid rgba(240, 240, 240, 0.5)';
       
-      // Title
+      // Title with luxury styling (removed the luxury icon)
       const title = document.createElement('h3');
       title.textContent = Translations.banner.title;
       title.setAttribute('dir', 'rtl');
       title.style.margin = '0';
-      title.style.fontSize = '18px';
+      title.style.fontSize = '22px';
       title.style.fontWeight = 'bold';
       title.style.fontFamily = Styling.persian.fontFamily;
       title.style.color = '#333';
-      header.appendChild(title);
+      title.style.textShadow = '0 1px 2px rgba(0, 0, 0, 0.1)';
       
-      // Close button
+      // Close button with luxury styling
       const closeBtn = document.createElement('button');
       closeBtn.textContent = '✕';
       closeBtn.setAttribute('aria-label', 'Close cookie preferences');
       closeBtn.setAttribute('tabindex', '0');
-      closeBtn.style.background = 'none';
-      closeBtn.style.border = 'none';
+      closeBtn.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(240, 240, 240, 0.8))';
+      closeBtn.style.border = '1px solid rgba(200, 200, 200, 0.5)';
       closeBtn.style.cursor = 'pointer';
       closeBtn.style.fontSize = '18px';
-      closeBtn.style.color = '#777';
+      closeBtn.style.color = '#666';
       closeBtn.style.padding = '0';
-      closeBtn.style.width = '32px';
-      closeBtn.style.height = '32px';
+      closeBtn.style.width = '36px';
+      closeBtn.style.height = '36px';
       closeBtn.style.display = 'flex';
       closeBtn.style.alignItems = 'center';
       closeBtn.style.justifyContent = 'center';
       closeBtn.style.borderRadius = '50%';
-      closeBtn.style.transition = 'background-color 0.2s';
+      closeBtn.style.transition = 'all 0.3s ease';
+      closeBtn.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
       
       // Add hover effect for close button
       closeBtn.addEventListener('mouseenter', () => {
-        closeBtn.style.backgroundColor = '#f0f0f0';
+        closeBtn.style.background = 'linear-gradient(135deg, #f5f5f5, #e0e0e0)';
+        closeBtn.style.transform = 'rotate(90deg)';
+        closeBtn.style.boxShadow = '0 6px 12px rgba(0, 0, 0, 0.15)';
       });
       closeBtn.addEventListener('mouseleave', () => {
-        closeBtn.style.backgroundColor = 'transparent';
+        closeBtn.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(240, 240, 240, 0.8))';
+        closeBtn.style.transform = 'rotate(0deg)';
+        closeBtn.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
       });
       
       // Add event listener for close button
@@ -2011,33 +2090,38 @@ const UIComponents = {
         }, 1000);
       });
       
+      header.appendChild(title);
       header.appendChild(closeBtn);
-      newBanner.appendChild(header);
+      bannerContent.appendChild(header);
       
       // Content container with scrollable HTML content
       const contentContainer = document.createElement('div');
-      contentContainer.style.padding = '15px 20px';
-      contentContainer.style.overflowY = 'auto'; // Make content scrollable
+      contentContainer.className = 'scrollable-content'; // Added class for scrollable content
+      contentContainer.style.padding = '20px 25px';
       contentContainer.style.flexGrow = '1'; // Allow this section to grow and take available space
-      contentContainer.style.backgroundColor = '#ffffff'; // Ensure white background
+      contentContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.7)'; // Ensure white background
       
       // Use Persian description with proper styling
       const persianDescription = document.createElement('div');
       persianDescription.className = 'extracted-banner-content black-text rtl-text';
       persianDescription.style.color = Styling.persian.color;
-      persianDescription.style.backgroundColor = '#ffffff';
+      persianDescription.style.backgroundColor = 'rgba(255, 255, 255, 0.5)';
       persianDescription.style.fontFamily = Styling.persian.fontFamily;
       persianDescription.style.fontSize = Styling.persian.fontSize;
       persianDescription.setAttribute('dir', 'rtl');
-      persianDescription.style.marginBottom = '15px';
+      persianDescription.style.marginBottom = '20px';
+      persianDescription.style.padding = '15px';
+      persianDescription.style.borderRadius = '12px';
+      persianDescription.style.border = '1px solid rgba(200, 200, 200, 0.3)';
+      persianDescription.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.05)';
       persianDescription.innerHTML = `<p style="color: ${Styling.persian.color}; font-family: ${Styling.persian.fontFamily}; font-size: ${Styling.persian.fontSize};">${Translations.banner.description}</p>`;
       contentContainer.appendChild(persianDescription);
       
       // Add a separator between content and customization
       const separator = document.createElement('hr');
-      separator.style.margin = '15px 0';
+      separator.style.margin = '20px 0';
       separator.style.border = 'none';
-      separator.style.borderTop = '1px solid #eee';
+      separator.style.borderTop = '1px solid rgba(225, 225, 225, 0.5)';
       contentContainer.appendChild(separator);
       
       // Add the prefetched customization content if it exists
@@ -2045,13 +2129,13 @@ const UIComponents = {
         contentContainer.appendChild(customizationContent);
       }
       
-      newBanner.appendChild(contentContainer);
+      bannerContent.appendChild(contentContainer);
       
       // Button container with improved layout
       const buttonContainer = document.createElement('div');
-      buttonContainer.style.padding = '15px 20px 20px 20px';
-      buttonContainer.style.backgroundColor = '#ffffff';
-      buttonContainer.style.borderTop = '1px solid #f0f0f0';
+      buttonContainer.style.padding = '20px 25px 25px 25px';
+      buttonContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+      buttonContainer.style.borderTop = '1px solid rgba(240, 240, 240, 0.5)';
       
       // Create a reference to the banner for use in button handlers
       const bannerRef = newBanner;
@@ -2090,7 +2174,13 @@ const UIComponents = {
       buttonContainer.appendChild(actionButtonsRow);
       buttonContainer.appendChild(acceptSelectionBtn);
       
-      newBanner.appendChild(buttonContainer);
+      bannerContent.appendChild(buttonContainer);
+      
+      // Add the content to the gradient wrapper
+      gradientWrapper.appendChild(bannerContent);
+      
+      // Add the gradient wrapper to the banner
+      newBanner.appendChild(gradientWrapper);
       
       // Add a subtle shadow indicator for scrollable content
       const scrollIndicator = document.createElement('div');
@@ -2098,10 +2188,10 @@ const UIComponents = {
       scrollIndicator.style.bottom = '0';
       scrollIndicator.style.left = '0';
       scrollIndicator.style.right = '0';
-      scrollIndicator.style.height = '10px';
+      scrollIndicator.style.height = '15px';
       scrollIndicator.style.background = 'linear-gradient(to top, rgba(0,0,0,0.1), transparent)';
       scrollIndicator.style.pointerEvents = 'none';
-      scrollIndicator.style.borderRadius = '0 0 12px 12px';
+      scrollIndicator.style.borderRadius = '0 0 20px 20px';
       newBanner.appendChild(scrollIndicator);
       
       // Add a function to show/hide scroll indicator based on content
