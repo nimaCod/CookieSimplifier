@@ -31,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const enabled = enableToggle.checked;
     console.log("[Cookie Simplifier] Extension enabled:", enabled);
     
-    // If disabling extension, also disable debug mode and auto-open
+    // If disabling extension, also disable debug mode
     let debugMode = debugToggle.checked;
     if (!enabled) {
       debugMode = false;
@@ -105,8 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateDebugInfo(settings) {
     let info = `<strong>Current Settings:</strong><br>`;
     info += `Extension: ${settings.enabled ? 'Enabled' : 'Disabled'}<br>`;
-    info += `Debug Mode: ${settings.debugMode ? 'Enabled' : 'Disabled'}<br>`;
-    info += `Excluded Domains: ${settings.excludedDomains ? settings.excludedDomains.length : 0}`;
+    info += `Debug Mode: ${settings.debugMode ? 'Enabled' : 'Disabled'}`;
     
     debugInfo.innerHTML = info;
   }
